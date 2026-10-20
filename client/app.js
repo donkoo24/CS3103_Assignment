@@ -20,6 +20,8 @@ const WS_URL = "ws://127.0.0.1:8765";
 const statusEl = document.getElementById("status");
 const liveEl = document.getElementById("live");
 const recallEl = document.getElementById("recall");
+const segmentRows = {}; // Track HTML rows by segment ID
+
 
 let ws;
 
@@ -33,13 +35,22 @@ function numericClientId() {
   return Number(value);
 }
 
-function appendNaively(msg) {
-  const row = document.createElement("div");
-  row.className = "naive-line";
-  const state = msg.final ? "FINAL" : "PROVISIONAL";
-  row.textContent = `[${state}] segment ${msg.segment} rev ${msg.revision}: ${msg.text}`;
-  liveEl.appendChild(row);
-  liveEl.scrollTop = liveEl.scrollHeight;
+function handleCaptionUpdate(msg) {
+    const state = msg.final ? "FINAL" : "PROVISIONAL";
+    const text = `[${state}] segment ${msg.segment} rev ${msg.revision}: ${msg.text}`;
+
+    if (segmentRows[msg.segment]) {
+        // Update existing row to replace the older revision
+        segmentRows[msg.segment].textContent = text;
+    } else {
+        // Create a new row for a new segment
+        const row = document.createElement("div");
+        row.className = "naive-line";
+        row.textContent = text;
+        liveEl.appendChild(row);
+        segmentRows[msg.segment] = row;
+    }
+    liveEl.scrollTop = liveEl.scrollHeight;
 }
 
 function connect() {
@@ -61,7 +72,7 @@ function connect() {
   ws.addEventListener("message", (event) => {
     const msg = JSON.parse(event.data);
     if (msg.type === "CAPTION_UPDATE") {
-      appendNaively(msg);
+      handleCaptionUpdate(msg);
     } else if (msg.type === "HISTORY") {
       console.log(`HISTORY with ${msg.items?.length ?? 0} item(s)`, msg);
       // TODO: merge history without stale/duplicate final captions.
