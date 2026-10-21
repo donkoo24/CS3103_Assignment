@@ -7,6 +7,4 @@ __pycache__/
 *_run*.json
 demo_results.*
 ci_t1.*
-venv/
-__pycache__/
 .pytest_cache/
