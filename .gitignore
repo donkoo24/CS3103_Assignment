@@ -3,3 +3,8 @@
 venv/
 *.json
 __pycache__/
+*_run*.csv
+*_run*.json
+demo_results.*
+ci_t1.*
+.pytest_cache/
