@@ -32,3 +32,7 @@ class CaptionState:
         stale_segments = [seg for seg in self.latest if seg < min_segment]
         for seg in stale_segments:
             del self.latest[seg]
+
+    def reset(self):
+        """qol: Clears the state when a new SOURCE_HELLO is received so that we don't have to clear the caption log on each new run of caption_from"""
+        self.latest.clear()
