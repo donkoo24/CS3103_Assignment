@@ -1,0 +1,262 @@
+"""Fan-out of accepted captions to many WebSocket clients.
+
+``Hub.publish()`` is synchronous and never awaits network I/O: it pushes the
+caption into every client's :class:`Mailbox` and wakes that client's writer
+task. Each client has exactly one writer task, so a slow or stalled socket only
+ever delays its own writer (slow-client isolation).
+
+Lag detection. Transport backpressure alone cannot see a slow *reader*: its
+kernel receive buffer and its WebSocket library queue (16 frames in the
+``websockets`` client) absorb the backlog long before our send buffer fills.
+Each writer therefore keeps one WebSocket ping in flight as a probe. The peer
+reads the ping only after every frame queued in front of it, so an overdue pong
+means "this client is behind". A lagging client is put in *degraded* mode:
+finals are still sent immediately, but provisional revisions are held back
+(coalesced in the mailbox) and released at most one frame per
+``degraded_gap``. Degraded mode lasts while the probe is overdue plus a hold
+period that doubles with every repeated lag event ("strike"), so the client's
+remaining backlog drains, then the client returns to full-revision delivery.
+
+Bandwidth. Per connection we cap the asyncio write buffer (``write_limit``)
+and, on Linux/macOS, the kernel's not-yet-sent bytes (``TCP_NOTSENT_LOWAT``).
+When the network is the bottleneck, ``send()`` therefore blocks early and the
+backlog builds up in the mailbox, where obsolete provisionals are coalesced,
+instead of as stale frames inside buffers we cannot edit.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+import math
+import socket
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from websockets.exceptions import ConnectionClosed
+
+from .mailbox import Mailbox
+
+log = logging.getLogger("liverecall.hub")
+
+
+class Publishable(Protocol):
+    """What the hub needs from a caption (``liverecall.protocol.Caption``)."""
+
+    segment: int
+    final: bool
+    wire: str  # pre-encoded CAPTION_UPDATE JSON, shared by all clients
+
+
+@dataclass(frozen=True)
+class DeliveryConfig:
+    finals_cap: int = 512  # pending finals per client before forcing a resync
+    write_limit: int = 4096  # asyncio write-buffer high-water mark (bytes)
+    notsent_lowat: int = 16384  # kernel unsent-bytes limit (bytes), 0 = off
+    probe_interval: float = 1.0  # min seconds between lag probes per client
+    lag_min: float = 0.5  # probe overdue threshold floor (s); else 3 x min RTT
+    degraded_gap: float = 1.0  # min seconds between frames for provisionals
+    hold: float = 4.0  # degraded hold after the first strike (s), doubles
+    hold_max: float = 60.0
+    strike_decay: float = 30.0  # lag-free seconds that forgive one strike
+
+
+class Session:
+    """One connected client: its mailbox, writer task and lag state."""
+
+    def __init__(
+        self,
+        hub: Hub,
+        ws: Any,
+        client_id: Any,
+        first_messages: Iterable[str],
+    ) -> None:
+        self.hub = hub
+        self.ws = ws
+        self.client_id = client_id
+        self.cfg = hub.config
+        self.mailbox = Mailbox(self.cfg.finals_cap)
+        self.sent = 0
+        self.lag_events = 0
+        self.min_rtt = math.inf
+        self._loop = asyncio.get_running_loop()
+        self._wake = asyncio.Event()
+        self._last_send = -math.inf
+        self._probe: asyncio.Future[float] | None = None
+        self._probe_sent = -math.inf
+        self._probe_lagged = False
+        self._strikes = 0
+        self._last_strike = -math.inf
+        self._degraded_until = -math.inf
+        _limit_buffers(ws, self.cfg)
+        self.task = asyncio.create_task(self._run(list(first_messages)))
+
+    # Called synchronously by Hub.publish().
+    def offer(self, caption: Publishable) -> None:
+        if self.mailbox.push(caption.segment, caption.final, caption.wire):
+            self._wake.set()
+        else:
+            self.hub._overflow(self)
+
+    @property
+    def degraded(self) -> bool:
+        now = self._loop.time()
+        return now < self._degraded_until or self._probe_overdue(now)
+
+    async def _run(self, first_messages: list[str]) -> None:
+        try:
+            for msg in first_messages:  # e.g. HISTORY, before any live update
+                await self.ws.send(msg)
+            while True:
+                msg = self._next()
+                if msg is None:
+                    # No await between _next() and clear(): no lost wake-up.
+                    self._wake.clear()
+                    timeout = 0.1 if self.mailbox.has_provisional else None
+                    try:
+                        await asyncio.wait_for(self._wake.wait(), timeout)
+                    except asyncio.TimeoutError:  # noqa: UP041 - distinct on 3.10
+                        pass
+                    continue
+                await self.ws.send(msg)
+                self.sent += 1
+                self._last_send = self._loop.time()
+                await self._maybe_probe()
+        except ConnectionClosed:
+            pass
+        except Exception:  # a delivery bug must not silently stall a client
+            log.exception("writer for client %s failed", self.client_id)
+            await _close_quietly(self.ws, 1011, "internal error")
+        finally:
+            self.hub.sessions.discard(self)
+
+    def _next(self) -> str | None:
+        msg = self.mailbox.pop_final()
+        if msg is not None:
+            return msg
+        if self.mailbox.has_provisional and self._provisional_allowed():
+            return self.mailbox.pop_provisional()
+        return None
+
+    def _provisional_allowed(self) -> bool:
+        now = self._loop.time()
+        if self._probe_overdue(now):
+            if not self._probe_lagged:
+                self._probe_lagged = True
+                self._strike(now)
+            return False
+        if now < self._degraded_until:
+            return now - self._last_send >= self.cfg.degraded_gap
+        return True
+
+    def _lag_threshold(self) -> float:
+        if math.isinf(self.min_rtt):
+            return self.cfg.lag_min
+        return max(self.cfg.lag_min, 3.0 * self.min_rtt)
+
+    def _probe_overdue(self, now: float) -> bool:
+        return (
+            self._probe is not None
+            and not self._probe.done()
+            and now - self._probe_sent >= self._lag_threshold()
+        )
+
+    def _strike(self, now: float) -> None:
+        if self._strikes:  # forgive one strike per lag-free strike_decay
+            forgiven = int((now - self._last_strike) // self.cfg.strike_decay)
+            self._strikes = max(0, self._strikes - forgiven)
+        self._strikes += 1
+        self._last_strike = now
+        self.lag_events += 1
+        self.hub.lag_events += 1
+
+    async def _maybe_probe(self) -> None:
+        now = self._loop.time()
+        if self._probe is None and now - self._probe_sent >= self.cfg.probe_interval:
+            self._probe_sent = now
+            self._probe_lagged = False
+            self._probe = await self.ws.ping()
+            self._probe.add_done_callback(self._on_pong)
+
+    def _on_pong(self, fut: asyncio.Future[float]) -> None:
+        self._probe = None
+        if fut.cancelled() or fut.exception() is not None:
+            return  # connection closing
+        self.min_rtt = min(self.min_rtt, fut.result())
+        if self._probe_lagged:
+            # The client has just read up to the probe: keep provisionals
+            # throttled for a hold period so its remaining backlog drains.
+            hold = self.cfg.hold * 2 ** (self._strikes - 1)
+            self._degraded_until = self._loop.time() + min(self.cfg.hold_max, hold)
+        self._wake.set()
+
+
+class Hub:
+    def __init__(self, config: DeliveryConfig | None = None) -> None:
+        self.config = config or DeliveryConfig()
+        self.sessions: set[Session] = set()
+        self.lag_events = 0
+        self.overflows = 0
+        self._closing: set[asyncio.Task[None]] = set()
+
+    def register(
+        self, ws: Any, client_id: Any, first_messages: Iterable[str] = ()
+    ) -> Session:
+        """Start delivering to ``ws``. Synchronous: call it in the same step as
+        the HISTORY snapshot so no update falls between the two."""
+        session = Session(self, ws, client_id, first_messages)
+        self.sessions.add(session)
+        return session
+
+    def unregister(self, session: Session) -> None:
+        self.sessions.discard(session)
+        if not session.task.done():
+            session.task.cancel()
+
+    def publish(self, caption: Publishable) -> None:
+        """Hand an accepted caption to every client. Never awaits."""
+        for session in tuple(self.sessions):  # offer() may unregister
+            session.offer(caption)
+
+    def stats(self) -> dict[str, int]:
+        sessions = tuple(self.sessions)
+        return {
+            "clients": len(sessions),
+            "degraded": sum(s.degraded for s in sessions),
+            "max_pending": max((len(s.mailbox) for s in sessions), default=0),
+            "coalesced": sum(s.mailbox.coalesced for s in sessions),
+            "lag_events": self.lag_events,
+            "overflows": self.overflows,
+        }
+
+    def _overflow(self, session: Session) -> None:
+        """A client let ``finals_cap`` finals pile up: drop its backlog and
+        close it with 1013 (Try Again Later) so it resumes via HISTORY, which
+        delivers everything it missed in one message."""
+        self.overflows += 1
+        self.unregister(session)
+        log.warning("client %s overflowed; closing for resync", session.client_id)
+        task = asyncio.ensure_future(_close_quietly(session.ws, 1013, "resync"))
+        self._closing.add(task)  # keep a reference until the close completes
+        task.add_done_callback(self._closing.discard)
+
+
+def _limit_buffers(ws: Any, cfg: DeliveryConfig) -> None:
+    transport = getattr(ws, "transport", None)
+    if transport is None:
+        return
+    transport.set_write_buffer_limits(high=cfg.write_limit)
+    sock = transport.get_extra_info("socket")
+    lowat = getattr(socket, "TCP_NOTSENT_LOWAT", None)
+    if sock is not None and lowat is not None and cfg.notsent_lowat > 0:
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, lowat, cfg.notsent_lowat)
+        except OSError:
+            pass
+
+
+async def _close_quietly(ws: Any, code: int, reason: str) -> None:
+    with contextlib.suppress(Exception):  # already closing: nothing to recover
+        await ws.close(code, reason)

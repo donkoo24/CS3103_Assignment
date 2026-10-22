@@ -1,0 +1,185 @@
+import asyncio
+import json
+import time
+from dataclasses import dataclass
+
+import websockets
+
+from liverecall.hub import DeliveryConfig, Hub
+
+FAST = DeliveryConfig(probe_interval=0.0, lag_min=0.05, degraded_gap=0.2, hold=0.3)
+
+
+@dataclass(frozen=True)
+class Cap:
+    segment: int
+    revision: int
+    final: bool
+
+    @property
+    def wire(self):
+        return json.dumps(
+            {"segment": self.segment, "revision": self.revision, "final": self.final}
+        )
+
+
+class FakeWS:
+    """Stands in for a websockets connection; sends block while `gate` is clear."""
+
+    def __init__(self, answer_pings=True):
+        self.sent = []
+        self.gate = asyncio.Event()
+        self.gate.set()
+        self.answer_pings = answer_pings
+        self.pings = []
+        self.closed = None
+
+    async def send(self, msg):
+        await self.gate.wait()
+        self.sent.append(msg if msg.startswith("H") else json.loads(msg))
+
+    async def ping(self):
+        fut = asyncio.get_running_loop().create_future()
+        if self.answer_pings:
+            fut.set_result(0.001)
+        self.pings.append(fut)
+        return fut
+
+    async def close(self, code, reason):
+        self.closed = (code, reason)
+
+
+def revisions(segments, per_segment=3):
+    for seg in range(1, segments + 1):
+        for rev in range(1, per_segment + 1):
+            yield Cap(seg, rev, rev == per_segment)
+
+
+async def settle(seconds=0.05):
+    await asyncio.sleep(seconds)
+
+
+def keys(msgs):
+    return [(m["segment"], m["revision"]) for m in msgs]
+
+
+def test_history_first_then_every_revision_in_order():
+    async def main():
+        hub, ws = Hub(FAST), FakeWS()
+        hub.register(ws, 1, ["HISTORY"])
+        for cap in revisions(3):
+            hub.publish(cap)
+            await settle(0.005)
+        await settle()
+        assert ws.sent[0] == "HISTORY"
+        assert keys(ws.sent[1:]) == [(c.segment, c.revision) for c in revisions(3)]
+
+    asyncio.run(main())
+
+
+def test_blocked_client_coalesces_to_finals_plus_newest_provisional():
+    async def main():
+        hub, ws = Hub(FAST), FakeWS()
+        ws.gate.clear()  # network stalled: send() blocks
+        hub.register(ws, 1)
+        hub.publish(Cap(1, 1, False))
+        await settle()  # writer is now blocked inside send(1,1)
+        for cap in [*revisions(4)][1:]:
+            hub.publish(cap)
+        hub.publish(Cap(5, 1, False))
+        hub.publish(Cap(5, 2, False))
+        ws.gate.set()
+        await settle()
+        assert keys(ws.sent) == [(1, 1), (1, 3), (2, 3), (3, 3), (4, 3), (5, 2)]
+        assert hub.stats()["coalesced"] >= 6
+
+    asyncio.run(main())
+
+
+def test_lagging_client_keeps_finals_and_throttles_provisionals():
+    async def main():
+        hub, ws = Hub(FAST), FakeWS(answer_pings=False)
+        session = hub.register(ws, 1)
+        hub.publish(Cap(1, 1, False))  # sent; probe goes out, never answered
+        await settle(0.1)  # probe is now overdue
+        hub.publish(Cap(1, 2, False))
+        hub.publish(Cap(1, 3, True))
+        hub.publish(Cap(2, 1, False))
+        await settle()
+        assert keys(ws.sent) == [(1, 1), (1, 3)]  # final through, provisionals held
+        assert session.degraded and hub.lag_events == 1
+
+        ws.pings[0].set_result(0.1)  # client has caught up to the probe
+        await settle()
+        assert session.degraded  # hold period: still throttled
+        await settle(FAST.degraded_gap + 0.15)
+        assert keys(ws.sent)[-1] == (2, 1)  # newest provisional released
+
+    asyncio.run(main())
+
+
+def test_overflow_closes_client_for_resync():
+    async def main():
+        hub = Hub(DeliveryConfig(finals_cap=3))
+        ws = FakeWS()
+        ws.gate.clear()
+        hub.register(ws, 1)
+        for seg in range(1, 6):
+            hub.publish(Cap(seg, 1, True))
+        await settle()
+        assert ws.closed == (1013, "resync")
+        assert hub.stats() | {"overflows": 1} == hub.stats()
+        assert not hub.sessions
+
+    asyncio.run(main())
+
+
+def test_unregister_cancels_writer():
+    async def main():
+        hub, ws = Hub(FAST), FakeWS()
+        session = hub.register(ws, 1)
+        hub.unregister(session)
+        await settle()
+        assert session.task.cancelled() and not hub.sessions
+        hub.publish(Cap(1, 1, True))  # no session left: nothing to do
+
+    asyncio.run(main())
+
+
+def test_real_sockets_stalled_reader_does_not_delay_normal_reader():
+    """End-to-end over real WebSockets: a client that stops reading is
+    detected via the ping probe while a normal client stays fresh."""
+
+    async def main():
+        cfg = DeliveryConfig(probe_interval=0.05, lag_min=0.2)
+        hub = Hub(cfg)
+
+        async def handler(ws):
+            session = hub.register(ws, id(ws))
+            try:
+                async for _ in ws:
+                    pass
+            finally:
+                hub.unregister(session)
+
+        async with websockets.serve(handler, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            uri = f"ws://127.0.0.1:{port}"
+            async with (
+                websockets.connect(uri) as fast,
+                websockets.connect(uri, close_timeout=0.1),
+            ):
+                await settle(0.1)
+                latencies = []
+                for cap in revisions(40):
+                    sent_at = time.perf_counter()
+                    hub.publish(cap)
+                    json.loads(await asyncio.wait_for(fast.recv(), 1))
+                    latencies.append(time.perf_counter() - sent_at)
+                    await asyncio.sleep(0.01)
+                assert max(latencies) < 0.1
+                assert hub.lag_events >= 1  # the silent client was detected
+                stalled = next(s for s in hub.sessions if s.lag_events)
+                assert len(stalled.mailbox) <= 40  # bounded: finals + 1 slot
+
+    asyncio.run(main())
