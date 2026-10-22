@@ -123,6 +123,30 @@ def test_stuck_client_gets_held_finals_as_one_history_frame():
     asyncio.run(main())
 
 
+def test_reader_slower_than_finals_rate_gets_batched_finals():
+    async def main():
+        cfg = DeliveryConfig(
+            probe_interval=0.0, lag_min=0.05, client_queue_band=1, hold_min=5.0
+        )
+        hub, ws = Hub(cfg), FakeWS(answer_pings=False)
+        hub.register(ws, 1)
+        hub._final_gap = 0.1  # finals arrive every 0.1 s
+        hub.publish(Cap(1, 1, False))
+        await settle(0.1)  # stuck long enough: reads take ~0.1 s per frame
+        ws.answer_pings = True
+        hub.publish(Cap(1, 2, True))
+        ws.pings[0].set_result(0.2)
+        await settle()
+        assert keys(ws.sent) == [(1, 1), (1, 2)]  # catch-up frame
+        for seg in (2, 3, 4):
+            hub.publish(Cap(seg, 1, True))
+        await settle(0.5)  # batched: one frame instead of three
+        assert len(ws.sent) == 3 and ws.sent[2]["type"] == "HISTORY"
+        assert keys(ws.sent[2]["items"]) == [(2, 1), (3, 1), (4, 1)]
+
+    asyncio.run(main())
+
+
 def test_overflow_closes_client_for_resync():
     async def main():
         hub = Hub(DeliveryConfig(finals_cap=3))

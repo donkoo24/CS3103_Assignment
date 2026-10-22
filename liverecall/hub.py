@@ -105,6 +105,7 @@ class Session:
         self._degraded_until = -math.inf
         self._catchup = False
         self._batch_gap = 0.0  # > 0 while finals must be batched (slow reader)
+        self._retry_at: float | None = None  # when a throttled frame may go
         _limit_buffers(ws, self.cfg)
         self.task = asyncio.create_task(self._run(list(first_messages)))
 
@@ -128,8 +129,11 @@ class Session:
                 msg = self._next()
                 if msg is None:
                     # No await between _next() and clear(): no lost wake-up.
+                    # Woken by publish(), by a pong, or when a throttle expires.
                     self._wake.clear()
-                    timeout = 0.1 if len(self.mailbox) else None  # throttled
+                    timeout = None
+                    if self._retry_at is not None:
+                        timeout = max(0.0, self._retry_at - self._loop.time())
                     try:
                         await asyncio.wait_for(self._wake.wait(), timeout)
                     except asyncio.TimeoutError:  # noqa: UP041 - distinct on 3.10
@@ -149,28 +153,32 @@ class Session:
 
     def _next(self) -> str | None:
         """Next frame to send, or None to wait. See the module docstring."""
-        if not len(self.mailbox):
+        self._retry_at = None
+        mb = self.mailbox
+        if not len(mb):
             return None
         now = self._loop.time()
-        if self._probe_overdue(now):
+        if self._probe_overdue(now):  # stuck: hold everything until the pong
             if not self._probe_lagged:
                 self._probe_lagged = True
                 self._strike(now)
             return None
-        mb = self.mailbox
         degraded = now < self._degraded_until
         if mb.has_final:
-            if self._catchup:
+            if self._catchup or (degraded and self._batch_gap):
+                ready_at = self._last_send + (0.0 if self._catchup else self._batch_gap)
+                if now < ready_at:
+                    self._retry_at = ready_at
+                    return None
                 self._catchup = False
                 return self._batch_finals()
-            if degraded and self._batch_gap:
-                if now - self._last_send < self._batch_gap:
-                    return None
-                return self._batch_finals()
             return mb.pop_final()
-        if not degraded or now - self._last_send >= self.cfg.degraded_gap:
-            return mb.pop_provisional()
-        return None
+        self._catchup = False
+        ready_at = self._last_send + self.cfg.degraded_gap if degraded else now
+        if now < ready_at:
+            self._retry_at = ready_at
+            return None
+        return mb.pop_provisional()
 
     def _batch_finals(self) -> str:
         finals = self.mailbox.pop_finals()
@@ -211,7 +219,11 @@ class Session:
         self._probe = None
         if fut.cancelled() or fut.exception() is not None:
             return  # connection closing
-        self.min_rtt = min(self.min_rtt, fut.result())
+        latency = fut.result()
+        if not self._probe_lagged and latency >= self._lag_threshold():
+            self._probe_lagged = True  # late, though nobody was waiting on it
+            self._strike(self._loop.time())
+        self.min_rtt = min(self.min_rtt, latency)
         if self._probe_lagged:
             # The client has just read up to the probe: deliver what it missed
             # in one frame, then stay degraded for a hold proportional to how
@@ -237,7 +249,7 @@ class Hub:
         self.sessions: set[Session] = set()
         self.lag_events = 0
         self.overflows = 0
-        self.finals_rate = 0.0  # finals per second (EWMA of inter-final gaps)
+        self._final_gap = math.inf  # EWMA of seconds between finals
         self._last_final = -math.inf
         self._closing: set[asyncio.Task[None]] = set()
 
@@ -259,12 +271,18 @@ class Hub:
         """Hand an accepted caption to every client. Never awaits."""
         if caption.final:
             now = asyncio.get_running_loop().time()
-            if not math.isinf(self._last_final) and now > self._last_final:
-                rate = 1.0 / (now - self._last_final)
-                self.finals_rate += 0.2 * (rate - self.finals_rate)
+            if not math.isinf(self._last_final):
+                gap = now - self._last_final
+                old = self._final_gap
+                self._final_gap = gap if math.isinf(old) else old + 0.2 * (gap - old)
             self._last_final = now
         for session in tuple(self.sessions):  # offer() may unregister
             session.offer(caption)
+
+    @property
+    def finals_rate(self) -> float:
+        """Finals per second recently published (0 until two are seen)."""
+        return 1.0 / self._final_gap if self._final_gap > 0 else math.inf
 
     def stats(self) -> dict[str, int]:
         sessions = tuple(self.sessions)
