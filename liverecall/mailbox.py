@@ -77,6 +77,12 @@ class Mailbox:
         """Oldest pending final, if any."""
         return self._finals.popleft() if self._finals else None
 
+    def pop_finals(self) -> list[str]:
+        """All pending finals, oldest first (for one batched frame)."""
+        finals = list(self._finals)
+        self._finals.clear()
+        return finals
+
     def pop_provisional(self) -> str | None:
         """Newest pending revision of the oldest unfinished segment, if any."""
         if not self._provisional:
