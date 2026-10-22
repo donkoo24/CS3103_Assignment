@@ -57,9 +57,9 @@ class DeliveryConfig:
     write_limit: int = 4096  # asyncio write-buffer high-water mark (bytes)
     notsent_lowat: int = 16384  # kernel unsent-bytes limit (bytes), 0 = off
     probe_interval: float = 1.0  # min seconds between lag probes per client
-    lag_min: float = 0.5  # probe overdue threshold floor (s); else 3 x min RTT
+    lag_min: float = 1.0  # probe overdue threshold floor (s); else 3 x min RTT
     degraded_gap: float = 1.0  # min seconds between frames for provisionals
-    hold_factor: float = 4.0  # degraded hold = hold_factor x time stuck ...
+    hold_factor: float = 10.0  # degraded hold = hold_factor x time stuck ...
     hold_min: float = 2.0  # ... clamped to [hold_min, hold_max] ...
     hold_max: float = 120.0  # ... and doubled for every repeated strike
     strike_decay: float = 60.0  # lag-free seconds that forgive one strike
