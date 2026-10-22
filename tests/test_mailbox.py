@@ -72,6 +72,15 @@ def test_finals_are_sent_before_provisionals_of_later_segments():
     assert got == [(1, True), (2, True), (3, False)]
 
 
+def test_pop_finals_takes_all_pending_finals_in_order():
+    mb = Mailbox()
+    for seg in (1, 2, 3):
+        mb.push(seg, True, wire(seg, 1, True))
+    mb.push(4, False, wire(4, 1, False))
+    assert [json.loads(w)["segment"] for w in mb.pop_finals()] == [1, 2, 3]
+    assert mb.pop_finals() == [] and mb.has_provisional
+
+
 def test_overflow_discards_and_rejects_until_resynchronised():
     mb = Mailbox(finals_cap=3)
     for seg in range(1, 4):
