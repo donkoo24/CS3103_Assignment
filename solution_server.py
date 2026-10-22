@@ -28,7 +28,16 @@ import asyncio
 import json
 from typing import Any
 
+import os
 import websockets
+
+from liverecall.hub import Hub
+from liverecall.protocol import caption_from, parse
+from liverecall.state import CaptionState
+
+STATE = CaptionState()
+HUB = Hub()
+NAIVE = os.environ.get('LR_NAIVE') == '1'
 
 # Naive global set of currently connected student clients.
 # There is deliberately no per-client queue or recovery state here.
@@ -68,9 +77,12 @@ async def handle_source(ws, hello: dict[str, Any]) -> None:
 
             msg_type = msg.get("type")
             if msg_type == "CAPTION_UPDATE":
-                # Baseline behavior: forward exactly what was received.
-                # No history, state, validation, coalescing, or bounded queues.
-                await broadcast_naively(raw)
+                if NAIVE:
+                    await broadcast_naively(raw)
+                    continue
+                cap = caption_from(msg)
+                if cap is not None and STATE.apply(cap):
+                    HUB.publish(cap)
             elif msg_type == "SOURCE_DONE":
                 # Test-control message. The specification does not require it
                 # to be forwarded to clients.
@@ -89,10 +101,18 @@ async def handle_client(ws, hello: dict[str, Any]) -> None:
     # The baseline has no stored recovery state. Sending an empty HISTORY makes
     # the connection behavior visible and keeps the starter easy to inspect.
     # Students must implement correct HISTORY semantics for the assignment.
+    if not NAIVE:
+        session = HUB.register(ws, client_id, [json.dumps({"type": "HISTORY", "items": []})])
+        try:
+            async for _ in ws:
+                pass
+        finally:
+            HUB.unregister(session)
+        return
     await ws.send(json.dumps({"type": "HISTORY", "items": []}))
 
     CLIENTS.add(ws)
-    print(f"client connected: id={client_id}; clients={len(CLIENTS)}", flush=True)
+    pass  # print(f"client connected: id={client_id}; clients={len(CLIENTS)}", flush=True)
     try:
         # Student clients normally don't send further messages after hello.
         # Keep the WebSocket open until the client disconnects.
@@ -100,7 +120,7 @@ async def handle_client(ws, hello: dict[str, Any]) -> None:
             pass
     finally:
         CLIENTS.discard(ws)
-        print(f"client disconnected: id={client_id}; clients={len(CLIENTS)}", flush=True)
+        pass  # print(f"client disconnected: id={client_id}; clients={len(CLIENTS)}", flush=True)
 
 
 async def handler(ws) -> None:

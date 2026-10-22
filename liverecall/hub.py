@@ -14,8 +14,9 @@ means "this client is behind". A lagging client is put in *degraded* mode:
 finals are still sent immediately, but provisional revisions are held back
 (coalesced in the mailbox) and released at most one frame per
 ``degraded_gap``. Degraded mode lasts while the probe is overdue plus a hold
-period that doubles with every repeated lag event ("strike"), so the client's
-remaining backlog drains, then the client returns to full-revision delivery.
+proportional to how long the client was stuck, doubled for every repeated lag
+event ("strike"), so the backlog already queued at the client drains instead of
+being topped up again. Then the client returns to full-revision delivery.
 
 Bandwidth. Per connection we cap the asyncio write buffer (``write_limit``)
 and, on Linux/macOS, the kernel's not-yet-sent bytes (``TCP_NOTSENT_LOWAT``).
@@ -58,9 +59,10 @@ class DeliveryConfig:
     probe_interval: float = 1.0  # min seconds between lag probes per client
     lag_min: float = 0.5  # probe overdue threshold floor (s); else 3 x min RTT
     degraded_gap: float = 1.0  # min seconds between frames for provisionals
-    hold: float = 4.0  # degraded hold after the first strike (s), doubles
-    hold_max: float = 60.0
-    strike_decay: float = 30.0  # lag-free seconds that forgive one strike
+    hold_factor: float = 4.0  # degraded hold = hold_factor x time stuck ...
+    hold_min: float = 2.0  # ... clamped to [hold_min, hold_max] ...
+    hold_max: float = 120.0  # ... and doubled for every repeated strike
+    strike_decay: float = 60.0  # lag-free seconds that forgive one strike
 
 
 class Session:
@@ -186,10 +188,15 @@ class Session:
             return  # connection closing
         self.min_rtt = min(self.min_rtt, fut.result())
         if self._probe_lagged:
-            # The client has just read up to the probe: keep provisionals
-            # throttled for a hold period so its remaining backlog drains.
-            hold = self.cfg.hold * 2 ** (self._strikes - 1)
-            self._degraded_until = self._loop.time() + min(self.cfg.hold_max, hold)
+            # The client has just read up to the probe, but frames sent while
+            # it was stuck are still queued behind it. Keep provisionals
+            # throttled for a hold proportional to how long it was stuck, so
+            # that backlog drains instead of being topped up again.
+            stuck = self._loop.time() - self._probe_sent
+            cfg = self.cfg
+            hold = min(cfg.hold_max, max(cfg.hold_min, cfg.hold_factor * stuck))
+            hold = min(cfg.hold_max, hold * 2 ** (self._strikes - 1))
+            self._degraded_until = self._loop.time() + hold
         self._wake.set()
 
 

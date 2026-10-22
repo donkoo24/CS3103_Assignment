@@ -7,7 +7,9 @@ import websockets
 
 from liverecall.hub import DeliveryConfig, Hub
 
-FAST = DeliveryConfig(probe_interval=0.0, lag_min=0.05, degraded_gap=0.2, hold=0.3)
+FAST = DeliveryConfig(
+    probe_interval=0.0, lag_min=0.05, degraded_gap=0.2, hold_min=0.3, hold_factor=0.0
+)
 
 
 @dataclass(frozen=True)
