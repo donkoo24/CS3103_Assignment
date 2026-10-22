@@ -18,10 +18,13 @@ means "this client is behind" (a *strike*). Policy per client:
   (finalized captions the client is missing, oldest first) - one read for the
   client instead of one per final;
 * degraded (a hold of ``hold_factor`` x the time it was stuck, doubled per
-  repeated strike): finals individually, provisionals at most one frame per
-  ``degraded_gap``; a repeat offender (>= 2 strikes) also gets its finals
-  batched, at most one frame per doubling ``batch_gap``, so a reader slower
-  than the finals rate still keeps up and stays complete;
+  repeated strike): provisionals at most one frame per ``degraded_gap``.
+  Finals go out one per frame - unless the client reads slower than finals
+  are produced. A saturated reader answers the probe only after draining its
+  library queue (16 -> 4 frames for ``websockets``), so its time per read is
+  about ``stuck / client_queue_band``. If that is too slow for the measured
+  finals rate, its finals are batched, one frame per 1.5 read times, so it
+  catches up and stays complete instead of falling further behind;
 * otherwise: every revision, immediately.
 
 Bandwidth. Per connection we cap the asyncio write buffer (``write_limit``)
@@ -69,7 +72,8 @@ class DeliveryConfig:
     hold_min: float = 2.0  # ... clamped to [hold_min, hold_max] ...
     hold_max: float = 120.0  # ... and doubled for every repeated strike
     strike_decay: float = 60.0  # lag-free seconds that forgive one strike
-    batch_gap_max: float = 8.0  # cap on the repeat-offender finals batch gap
+    client_queue_band: int = 12  # frames a saturated client reads before a pong
+    batch_gap_max: float = 8.0  # cap on the slow-reader finals batch gap
 
 
 class Session:
@@ -100,6 +104,7 @@ class Session:
         self._last_strike = -math.inf
         self._degraded_until = -math.inf
         self._catchup = False
+        self._batch_gap = 0.0  # > 0 while finals must be batched (slow reader)
         _limit_buffers(ws, self.cfg)
         self.task = asyncio.create_task(self._run(list(first_messages)))
 
@@ -158,9 +163,8 @@ class Session:
             if self._catchup:
                 self._catchup = False
                 return self._batch_finals()
-            if degraded and self._strikes >= 2:
-                gap = self.cfg.degraded_gap * 2 ** (self._strikes - 2)
-                if now - self._last_send < min(gap, self.cfg.batch_gap_max):
+            if degraded and self._batch_gap:
+                if now - self._last_send < self._batch_gap:
                     return None
                 return self._batch_finals()
             return mb.pop_final()
@@ -216,6 +220,11 @@ class Session:
             self._catchup = True
             stuck = self._loop.time() - self._probe_sent
             cfg = self.cfg
+            read_time = stuck / cfg.client_queue_band
+            too_slow = read_time * self.hub.finals_rate >= 1.0
+            self._batch_gap = (
+                min(cfg.batch_gap_max, 1.5 * read_time) if too_slow else 0.0
+            )
             hold = min(cfg.hold_max, max(cfg.hold_min, cfg.hold_factor * stuck))
             hold = min(cfg.hold_max, hold * 2 ** (self._strikes - 1))
             self._degraded_until = self._loop.time() + hold
@@ -228,6 +237,8 @@ class Hub:
         self.sessions: set[Session] = set()
         self.lag_events = 0
         self.overflows = 0
+        self.finals_rate = 0.0  # finals per second (EWMA of inter-final gaps)
+        self._last_final = -math.inf
         self._closing: set[asyncio.Task[None]] = set()
 
     def register(
@@ -246,6 +257,12 @@ class Hub:
 
     def publish(self, caption: Publishable) -> None:
         """Hand an accepted caption to every client. Never awaits."""
+        if caption.final:
+            now = asyncio.get_running_loop().time()
+            if not math.isinf(self._last_final) and now > self._last_final:
+                rate = 1.0 / (now - self._last_final)
+                self.finals_rate += 0.2 * (rate - self.finals_rate)
+            self._last_final = now
         for session in tuple(self.sessions):  # offer() may unregister
             session.offer(caption)
 
