@@ -147,6 +147,25 @@ def test_reader_slower_than_finals_rate_gets_batched_finals():
     asyncio.run(main())
 
 
+def test_unacknowledged_frames_are_capped_by_the_window():
+    async def main():
+        cfg = DeliveryConfig(window=8, lag_min=60.0)  # isolate the window
+        hub, ws = Hub(cfg), FakeWS(answer_pings=False)
+        hub.register(ws, 1)
+        for cap in revisions(10):  # 30 frames' worth, one by one
+            hub.publish(cap)
+            await settle(0.002)
+        await settle()
+        assert len(ws.sent) == 8  # then held until a pong acknowledges them
+        assert hub.lag_events == 0  # a full window alone is not a strike
+        for fut in ws.pings:
+            fut.set_result(0.001)
+        await settle()
+        assert len(ws.sent) > 8  # resumes after the acknowledgement
+
+    asyncio.run(main())
+
+
 def test_overflow_closes_client_for_resync():
     async def main():
         hub = Hub(DeliveryConfig(finals_cap=3))

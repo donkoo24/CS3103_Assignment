@@ -9,11 +9,14 @@ Lag detection. Transport backpressure alone cannot see a slow *reader*: its
 kernel receive buffer and its WebSocket library queue (16 frames in the
 ``websockets`` client) absorb the backlog long before our send buffer fills.
 Each writer therefore keeps one WebSocket ping in flight as a probe. The peer
-reads the ping only after every frame queued in front of it, so an overdue pong
-means "this client is behind" (a *strike*). Policy per client:
+reads the ping only after every frame queued in front of it, so a pong also
+acknowledges every frame before it, and an overdue pong means "this client is
+behind" (a *strike*). Policy per client:
 
-* stuck (probe overdue): send nothing; anything sent now would only queue
-  behind the backlog, so finals accumulate and provisionals coalesce;
+* stuck (probe overdue, or ``window`` frames sent but not yet acknowledged):
+  send nothing; anything sent now would only queue behind the backlog, so
+  finals accumulate and provisionals coalesce. The window bounds a slow
+  reader's backlog regardless of how fast the source bursts;
 * caught up to the probe: flush every held final as ONE ``HISTORY`` frame
   (finalized captions the client is missing, oldest first) - one read for the
   client instead of one per final;
@@ -65,7 +68,8 @@ class DeliveryConfig:
     finals_cap: int = 512  # pending finals per client before forcing a resync
     write_limit: int = 4096  # asyncio write-buffer high-water mark (bytes)
     notsent_lowat: int = 16384  # kernel unsent-bytes limit (bytes), 0 = off
-    probe_interval: float = 1.0  # min seconds between lag probes per client
+    probe_interval: float = 1.0  # probe at least this often (s) ...
+    window: int = 32  # ... and every window/2 frames; max unacknowledged frames
     lag_min: float = 1.0  # probe overdue threshold floor (s); else 3 x min RTT
     degraded_gap: float = 1.0  # min seconds between frames for provisionals
     hold_factor: float = 10.0  # degraded hold = hold_factor x time stuck ...
@@ -91,7 +95,9 @@ class Session:
         self.client_id = client_id
         self.cfg = hub.config
         self.mailbox = Mailbox(self.cfg.finals_cap)
-        self.sent = 0
+        self.sent = 0  # frames sent (one WebSocket message each)
+        self._acked = 0  # frames acknowledged by a returned probe
+        self._probe_frame = 0  # self.sent when the outstanding probe was sent
         self.lag_events = 0
         self.min_rtt = math.inf
         self._loop = asyncio.get_running_loop()
@@ -163,6 +169,8 @@ class Session:
                 self._probe_lagged = True
                 self._strike(now)
             return None
+        if self._probe is not None and self.sent - self._acked >= self.cfg.window:
+            return None  # window full: wait for the pong (not a strike by itself)
         degraded = now < self._degraded_until
         if mb.has_final:
             if self._catchup or (degraded and self._batch_gap):
@@ -208,9 +216,13 @@ class Session:
         self.hub.lag_events += 1
 
     async def _maybe_probe(self) -> None:
+        if self._probe is not None:
+            return
         now = self._loop.time()
-        if self._probe is None and now - self._probe_sent >= self.cfg.probe_interval:
+        due = now - self._probe_sent >= self.cfg.probe_interval
+        if due or self.sent - self._acked >= self.cfg.window // 2:
             self._probe_sent = now
+            self._probe_frame = self.sent
             self._probe_lagged = False
             self._probe = await self.ws.ping()
             self._probe.add_done_callback(self._on_pong)
@@ -220,6 +232,7 @@ class Session:
         if fut.cancelled() or fut.exception() is not None:
             return  # connection closing
         latency = fut.result()
+        self._acked = self._probe_frame
         if not self._probe_lagged and latency >= self._lag_threshold():
             self._probe_lagged = True  # late, though nobody was waiting on it
             self._strike(self._loop.time())
