@@ -38,7 +38,7 @@ class FakeWS:
 
     async def send(self, msg):
         await self.gate.wait()
-        self.sent.append(msg if msg.startswith("H") else json.loads(msg))
+        self.sent.append(json.loads(msg))
 
     async def ping(self):
         fut = asyncio.get_running_loop().create_future()
@@ -68,12 +68,12 @@ def keys(msgs):
 def test_history_first_then_every_revision_in_order():
     async def main():
         hub, ws = Hub(FAST), FakeWS()
-        hub.register(ws, 1, ["HISTORY"])
+        hub.register(ws, 1, ['{"type":"HISTORY","items":[]}'])
         for cap in revisions(3):
             hub.publish(cap)
             await settle(0.005)
         await settle()
-        assert ws.sent[0] == "HISTORY"
+        assert ws.sent[0] == {"type": "HISTORY", "items": []}
         assert keys(ws.sent[1:]) == [(c.segment, c.revision) for c in revisions(3)]
 
     asyncio.run(main())
@@ -98,24 +98,27 @@ def test_blocked_client_coalesces_to_finals_plus_newest_provisional():
     asyncio.run(main())
 
 
-def test_lagging_client_keeps_finals_and_throttles_provisionals():
+def test_stuck_client_gets_held_finals_as_one_history_frame():
     async def main():
         hub, ws = Hub(FAST), FakeWS(answer_pings=False)
         session = hub.register(ws, 1)
         hub.publish(Cap(1, 1, False))  # sent; probe goes out, never answered
-        await settle(0.1)  # probe is now overdue
-        hub.publish(Cap(1, 2, False))
-        hub.publish(Cap(1, 3, True))
-        hub.publish(Cap(2, 1, False))
+        await settle(0.1)  # probe is now overdue: the client is behind
+        for cap in [*revisions(3)][1:]:
+            hub.publish(cap)
+        hub.publish(Cap(4, 1, False))
         await settle()
-        assert keys(ws.sent) == [(1, 1), (1, 3)]  # final through, provisionals held
+        assert keys(ws.sent) == [(1, 1)]  # stuck: nothing sent, all held
         assert session.degraded and hub.lag_events == 1
 
-        ws.pings[0].set_result(0.1)  # client has caught up to the probe
+        ws.pings[0].set_result(1.0)  # client has now read up to the probe
         await settle()
-        assert session.degraded  # hold period: still throttled
+        catchup = ws.sent[1]
+        assert catchup["type"] == "HISTORY"
+        assert keys(catchup["items"]) == [(1, 3), (2, 3), (3, 3)]
+        assert session.degraded and len(ws.sent) == 2  # provisional held back
         await settle(FAST.degraded_gap + 0.15)
-        assert keys(ws.sent)[-1] == (2, 1)  # newest provisional released
+        assert keys(ws.sent[2:]) == [(4, 1)]  # newest provisional released
 
     asyncio.run(main())
 

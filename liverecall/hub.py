@@ -10,13 +10,19 @@ kernel receive buffer and its WebSocket library queue (16 frames in the
 ``websockets`` client) absorb the backlog long before our send buffer fills.
 Each writer therefore keeps one WebSocket ping in flight as a probe. The peer
 reads the ping only after every frame queued in front of it, so an overdue pong
-means "this client is behind". A lagging client is put in *degraded* mode:
-finals are still sent immediately, but provisional revisions are held back
-(coalesced in the mailbox) and released at most one frame per
-``degraded_gap``. Degraded mode lasts while the probe is overdue plus a hold
-proportional to how long the client was stuck, doubled for every repeated lag
-event ("strike"), so the backlog already queued at the client drains instead of
-being topped up again. Then the client returns to full-revision delivery.
+means "this client is behind" (a *strike*). Policy per client:
+
+* stuck (probe overdue): send nothing; anything sent now would only queue
+  behind the backlog, so finals accumulate and provisionals coalesce;
+* caught up to the probe: flush every held final as ONE ``HISTORY`` frame
+  (finalized captions the client is missing, oldest first) - one read for the
+  client instead of one per final;
+* degraded (a hold of ``hold_factor`` x the time it was stuck, doubled per
+  repeated strike): finals individually, provisionals at most one frame per
+  ``degraded_gap``; a repeat offender (>= 2 strikes) also gets its finals
+  batched, at most one frame per doubling ``batch_gap``, so a reader slower
+  than the finals rate still keeps up and stays complete;
+* otherwise: every revision, immediately.
 
 Bandwidth. Per connection we cap the asyncio write buffer (``write_limit``)
 and, on Linux/macOS, the kernel's not-yet-sent bytes (``TCP_NOTSENT_LOWAT``).
@@ -63,6 +69,7 @@ class DeliveryConfig:
     hold_min: float = 2.0  # ... clamped to [hold_min, hold_max] ...
     hold_max: float = 120.0  # ... and doubled for every repeated strike
     strike_decay: float = 60.0  # lag-free seconds that forgive one strike
+    batch_gap_max: float = 8.0  # cap on the repeat-offender finals batch gap
 
 
 class Session:
@@ -92,6 +99,7 @@ class Session:
         self._strikes = 0
         self._last_strike = -math.inf
         self._degraded_until = -math.inf
+        self._catchup = False
         _limit_buffers(ws, self.cfg)
         self.task = asyncio.create_task(self._run(list(first_messages)))
 
@@ -116,7 +124,7 @@ class Session:
                 if msg is None:
                     # No await between _next() and clear(): no lost wake-up.
                     self._wake.clear()
-                    timeout = 0.1 if self.mailbox.has_provisional else None
+                    timeout = 0.1 if len(self.mailbox) else None  # throttled
                     try:
                         await asyncio.wait_for(self._wake.wait(), timeout)
                     except asyncio.TimeoutError:  # noqa: UP041 - distinct on 3.10
@@ -135,23 +143,36 @@ class Session:
             self.hub.sessions.discard(self)
 
     def _next(self) -> str | None:
-        msg = self.mailbox.pop_final()
-        if msg is not None:
-            return msg
-        if self.mailbox.has_provisional and self._provisional_allowed():
-            return self.mailbox.pop_provisional()
-        return None
-
-    def _provisional_allowed(self) -> bool:
+        """Next frame to send, or None to wait. See the module docstring."""
+        if not len(self.mailbox):
+            return None
         now = self._loop.time()
         if self._probe_overdue(now):
             if not self._probe_lagged:
                 self._probe_lagged = True
                 self._strike(now)
-            return False
-        if now < self._degraded_until:
-            return now - self._last_send >= self.cfg.degraded_gap
-        return True
+            return None
+        mb = self.mailbox
+        degraded = now < self._degraded_until
+        if mb.has_final:
+            if self._catchup:
+                self._catchup = False
+                return self._batch_finals()
+            if degraded and self._strikes >= 2:
+                gap = self.cfg.degraded_gap * 2 ** (self._strikes - 2)
+                if now - self._last_send < min(gap, self.cfg.batch_gap_max):
+                    return None
+                return self._batch_finals()
+            return mb.pop_final()
+        if not degraded or now - self._last_send >= self.cfg.degraded_gap:
+            return mb.pop_provisional()
+        return None
+
+    def _batch_finals(self) -> str:
+        finals = self.mailbox.pop_finals()
+        if len(finals) == 1:
+            return finals[0]
+        return '{"type":"HISTORY","items":[' + ",".join(finals) + "]}"
 
     def _lag_threshold(self) -> float:
         if math.isinf(self.min_rtt):
@@ -188,10 +209,11 @@ class Session:
             return  # connection closing
         self.min_rtt = min(self.min_rtt, fut.result())
         if self._probe_lagged:
-            # The client has just read up to the probe, but frames sent while
-            # it was stuck are still queued behind it. Keep provisionals
-            # throttled for a hold proportional to how long it was stuck, so
-            # that backlog drains instead of being topped up again.
+            # The client has just read up to the probe: deliver what it missed
+            # in one frame, then stay degraded for a hold proportional to how
+            # long it was stuck so its remaining backlog drains instead of
+            # being topped up again.
+            self._catchup = True
             stuck = self._loop.time() - self._probe_sent
             cfg = self.cfg
             hold = min(cfg.hold_max, max(cfg.hold_min, cfg.hold_factor * stuck))
