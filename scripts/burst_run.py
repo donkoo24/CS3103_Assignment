@@ -124,6 +124,9 @@ def main() -> None:
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--seed", type=int, default=3103)
     p.add_argument("--output-stem", default="h7_burst")
+    # Accepted for drop-in compatibility with run_demo.py's CLI (stress.sh);
+    # the server's output is always discarded here.
+    p.add_argument("--quiet-server", action="store_true")
     args = p.parse_args()
     summaries = [one_run(args, n) for n in range(1, args.runs + 1)]
     print_medians(summaries)
