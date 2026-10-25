@@ -1,8 +1,8 @@
 # Delivery & backpressure (report section draft: Damian)
 
-> Draft for `report.pdf`. Numbers are single local runs (macOS) from the PR
-> evidence; replace them with 3-run Ubuntu medians from `run_demo.py` and
-> `scripts/burst_run.py` before submission.
+> Draft for `report.pdf`. Results are 3-run medians on the integrated server
+> (state + history + hub + wiring) on macOS; Leonard's Ubuntu runs
+> (`scripts/stress.sh`, #11) supersede them where they overlap.
 
 ## Architecture
 
@@ -75,17 +75,39 @@ cannot edit.
 - One provisional per unfinished segment.
 - In-flight frames ≤ 32.
 
-## Results (single local runs; to be replaced by Ubuntu medians)
+## Results
 
-| Scenario | Starter: completeness / P95 / normal-client P95 | Ours: completeness / P95 / normal-client P95 |
+3 independent runs per scenario, medians, unmodified instructor harness
+(`run_demo.py --runs 3`; `scripts/burst_run.py --runs 3` for H7). All 9 runs:
+0 duplicates, 0 stale, 0 non-final HISTORY items, 0 connection errors.
+
+| Scenario | Completeness | P95 / P99 age | Normal-client P95 | Fresh finals | Server RSS |
+|---|---|---|---|---|---|
+| T3: 100 clients, 10% slow @ 500 ms, 60 s | **100%** | 23 ms / 3.8 s | 21 ms | 95.7% | 38 → 39 MB (flat) |
+| H2: 300 clients, 30% slow @ 1000 ms, 60 s | **100%** | 57 ms / 15.8 s | 39 ms | 73.3% | 54 → 57 MB (flat) |
+| H7: 10x revision burst, 200 clients, 10% slow, 40 s | **99.71%** | 14 ms / 42 ms | 14 ms | 90.8% | - |
+
+Starter baseline (single runs, same workloads):
+
+| Scenario | Completeness | Normal-client P95 |
 |---|---|---|
-| T2: 100 clients | 100% / 21 ms / 21 ms | 100% / 31 ms / 31 ms (coverage 100%) |
-| T3: 10% slow @ 500 ms, 60 s | 95.31% / 1.80 s / 19 ms | **100%** / **27 ms** / 25 ms |
-| H2: 30% slow @ 1000 ms, 60 s | 77.50% / 21.9 s / 7.0 s | **100%** / **108 ms** / 45 ms |
-| H7: 10× revision burst, 10% slow, 40 s | 90.53% / 11 ms / 11 ms | **99.74%** / 12 ms / 11 ms |
+| T3 | 95.31% | 19 ms |
+| H2 | 77.50% | **7.0 s** (a slow group stalled everyone) |
+| H7 | 90.53% | 11 ms |
 
-0 duplicates and 0 stale updates in every run. T3 slow-client P50 fell from
-9.7 s to 0.6 s.
+Integrated checks:
+- T4 (20% of clients disconnected for 5 s): 100% completeness, 0 duplicates,
+  recovery P95 3.4 ms.
+- T2 and 500 clients without slow readers: 100% coverage and 100% fresh finals.
+
+**Reading the numbers.**
+- Completeness is at or near 100% everywhere, which is the gate that caps the
+  hidden marks.
+- Normal clients stay within a few ms of the unloaded case: isolation works.
+- The remaining slow-client tail (T3 P99 3.8 s, H2 P99 15.8 s) is the
+  unavoidable first fill of the reader's 16-frame library queue, which is
+  invisible until it saturates (see the detection floor below).
+- RSS plateaus, so the per-client bounds hold in practice.
 
 ## Trade-offs and limitations
 
@@ -97,6 +119,11 @@ cannot edit.
   watermarks 16/4, configurable as `client_queue_band`). Browsers dispatch
   frames immediately, so in practice they only get stuck on network
   congestion, where the estimate correctly declines to batch.
+- **Shared bandwidth caps are tuned separately** (LE-4). Under a global cap,
+  freshness depends on how many bytes each socket may queue outside the
+  mailbox (asyncio `write_limit` + kernel `TCP_NOTSENT_LOWAT`). At 1 Mbit/s
+  with 300 clients, the whole 0.5 s freshness budget is about 60 KB, roughly
+  one message per socket. Both knobs are therefore part of the sweep.
 - **Mid-stream `HISTORY`** keeps the spec's meaning ("finalized captions you
   are missing, oldest first"), but it is a protocol extension the browser
   client must accept at any time.
