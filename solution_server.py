@@ -27,87 +27,80 @@ import argparse
 import asyncio
 import json
 from typing import Any
+from liverecall.protocol import parse, caption_from
+from liverecall.state import CaptionState
+from liverecall.history import FinalHistory
+from liverecall.hub import Hub
 
 import websockets
 
-# Naive global set of currently connected student clients.
-# There is deliberately no per-client queue or recovery state here.
-CLIENTS: set[Any] = set()
+STATE = CaptionState()
+HISTORY = FinalHistory()
+HUB = Hub()
 
-
-async def broadcast_naively(raw_message: str) -> None:
-    """Send one message directly to every connected client.
-
-    This is intentionally a naive baseline. The source handler waits for all
-    sends to complete. Under pressure, this design may accumulate delay and is
-    not the target architecture for the assignment.
-    """
-    if not CLIENTS:
-        return
-
-    snapshot = list(CLIENTS)
-    results = await asyncio.gather(
-        *(client.send(raw_message) for client in snapshot),
-        return_exceptions=True,
-    )
-    for client, result in zip(snapshot, results):
-        if isinstance(result, Exception):
-            CLIENTS.discard(client)
-
+active_source_ws = None
 
 async def handle_source(ws, hello: dict[str, Any]) -> None:
-    session = hello.get("session")
-    print(f"source connected: session={session}", flush=True)
+    global active_source_ws
+
+    # Safely disconnect any ghost source connection
+    if active_source_ws is not None and active_source_ws != ws:
+        try:
+            await active_source_ws.close(code=1000, reason="Replaced by new source")
+        except Exception:
+            pass
+            
+    active_source_ws = ws
+    print(f"Source connected: session={hello.get('session')}", flush=True)
 
     try:
         async for raw in ws:
-            try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
+            msg = parse(raw)
+            cap = caption_from(msg) if msg else None
+            
+            # Drop malformed inputs silently
+            if not cap:
                 continue
-
-            msg_type = msg.get("type")
-            if msg_type == "CAPTION_UPDATE":
-                # Baseline behavior: forward exactly what was received.
-                # No history, state, validation, coalescing, or bounded queues.
-                await broadcast_naively(raw)
-            elif msg_type == "SOURCE_DONE":
-                # Test-control message. The specification does not require it
-                # to be forwarded to clients.
-                print("source finished", flush=True)
-            else:
-                # Forward compatibility: ignore fields/messages this baseline
-                # doesn't understand rather than crashing.
-                continue
+                
+            # The Core Pipeline
+            if STATE.apply(cap):
+                if cap.final:
+                    HISTORY.add(cap)
+                HUB.publish(cap)
     finally:
-        print("source disconnected", flush=True)
+        if active_source_ws == ws:
+            active_source_ws = None
+        print("Source disconnected", flush=True)
 
 
 async def handle_client(ws, hello: dict[str, Any]) -> None:
     client_id = hello.get("client_id")
+    client_id = hello.get("client_id")
+    last_seg = int(hello.get("last_segment", 0))
+    last_rev = int(hello.get("last_revision", 0))
+    history_sec = float(hello.get("history_seconds", 30))
 
-    # The baseline has no stored recovery state. Sending an empty HISTORY makes
-    # the connection behavior visible and keeps the starter easy to inspect.
-    # Students must implement correct HISTORY semantics for the assignment.
-    await ws.send(json.dumps({"type": "HISTORY", "items": []}))
-
-    CLIENTS.add(ws)
-    print(f"client connected: id={client_id}; clients={len(CLIENTS)}", flush=True)
+    # Atomic Handshake: Generate history and register synchronously to prevent client from missing caption
+    hist_msg = HISTORY.history_msg(last_seg, last_rev, history_sec)
+    session = HUB.register(ws, client_id, first_messages=[hist_msg])
+    
+    print(f"Client connected: id={client_id}", flush=True)
+    
     try:
-        # Student clients normally don't send further messages after hello.
-        # Keep the WebSocket open until the client disconnects.
+        # Keep connection alive while the Hub handles outbound writes
         async for _ in ws:
             pass
     finally:
-        CLIENTS.discard(ws)
-        print(f"client disconnected: id={client_id}; clients={len(CLIENTS)}", flush=True)
-
+        HUB.unregister(session)
+        print(f"Client disconnected: id={client_id}", flush=True)
 
 async def handler(ws) -> None:
     try:
         raw = await asyncio.wait_for(ws.recv(), timeout=5)
-        hello = json.loads(raw)
-    except (asyncio.TimeoutError, json.JSONDecodeError):
+        hello = parse(raw)
+        if not isinstance(hello, dict):
+            raise ValueError
+    except (asyncio.TimeoutError, ValueError, TypeError):
         await ws.close(code=1008, reason="Expected a valid hello message")
         return
 

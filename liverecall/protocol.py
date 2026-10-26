@@ -21,6 +21,8 @@ def caption_from(msg: dict) -> Caption | None:
     """Validates required fields and drops unknown ones."""
     if not isinstance(msg, dict) or msg.get("type") != "CAPTION_UPDATE":
         return None
+
+    # Also ignores "Source_Done"
         
     try:
         segment = int(msg["segment"])
