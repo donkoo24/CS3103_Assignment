@@ -7,10 +7,71 @@ captions when constructing a HISTORY message.
 from __future__ import annotations
 
 import bisect
-import json
+import itertools
 import math
+from collections import OrderedDict
+from collections.abc import Iterable
 
 from .protocol import Caption
+
+
+class _HistoryMessageCache:
+    """Bounded LRU cache for encoded HISTORY messages.
+
+    The cache is deliberately bounded both by entry count and encoded bytes:
+    reconnect storms should reuse cached messages.
+    Uses OrderedDict and key = (last_segment, last_revision, history_seconds).
+    """
+
+    MAX_ENTRIES = 64
+    MAX_BYTES = 8 * 1024 * 1024
+
+    def __init__(
+        self,
+        max_entries: int = MAX_ENTRIES,
+        max_bytes: int = MAX_BYTES,
+    ) -> None:
+        if max_entries <= 0:
+            raise ValueError("max_entries must be positive")
+        if max_bytes <= 0:
+            raise ValueError("max_bytes must be positive")
+        self.max_entries = int(max_entries)
+        self.max_bytes = int(max_bytes)
+        self._items: OrderedDict[tuple[int, int, float], str] = OrderedDict()
+        self._bytes = 0
+
+    def get(self, key: tuple[int, int, float]) -> str | None:
+        message = self._items.get(key)
+        if message is not None:
+            self._items.move_to_end(key)
+        return message
+
+    def put(self, key: tuple[int, int, float], message: str) -> None:
+        message_bytes = len(message.encode("utf-8"))
+        old = self._items.pop(key, None)
+        if old is not None:
+            self._bytes -= len(old.encode("utf-8"))
+
+        # A single oversized message should not force out smaller entries.
+        if message_bytes > self.max_bytes:
+            return
+
+        self._items[key] = message
+        self._bytes += message_bytes
+        while len(self._items) > self.max_entries or self._bytes > self.max_bytes:
+            _, evicted = self._items.popitem(last=False)
+            self._bytes -= len(evicted.encode("utf-8"))
+
+    def clear(self) -> None:
+        self._items.clear()
+        self._bytes = 0
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    @property
+    def bytes_used(self) -> int:
+        return self._bytes
 
 
 class FinalHistory:
@@ -50,6 +111,7 @@ class FinalHistory:
         self._by_segment: dict[int, Caption] = {}
 
         self._newest_source_ts: float | None = None
+        self._message_cache = _HistoryMessageCache()
 
     def __len__(self) -> int:
         return len(self._time_items)
@@ -77,9 +139,15 @@ class FinalHistory:
         if self._newest_source_ts is None or c.source_ts > self._newest_source_ts:
             self._newest_source_ts = c.source_ts
         self._prune()
+        self._message_cache.clear()
 
-    def history_msg(self, last_seg: int, last_rev: int, seconds: float) -> str:
-        """Return a compact HISTORY message for a late join or resume.
+    def history_for(
+        self,
+        last_segment: int,
+        last_revision: int,
+        seconds: float,
+    ) -> tuple[Caption, ...]:
+        """Select finalized captions for a late join or resume.
 
         A late join honors ``seconds`` up to 60 seconds.  A resume always
         searches the full 60-second recovery window so a reconnect cannot
@@ -88,18 +156,11 @@ class FinalHistory:
         """
 
         if not self._time_items:
-            return self._encode_history(())
+            return ()
 
-        # Client's latest caption
-        last_seg = self._safe_int(last_seg, default=0)
-        last_rev = self._safe_int(last_rev, default=0)
-
-        if last_seg > 0:
-            # For a reconnect, get all within 60s, even if requested less
-            window_seconds = min(self.MAX_REQUEST_SECONDS, self.max_seconds)
-        else:
-            # For a late join, use the specified seconds
-            window_seconds = self._clamp_seconds(seconds)
+        last_seg, last_rev, window_seconds = self._normalize_request(
+            last_segment, last_revision, seconds
+        )
 
         assert self._newest_source_ts is not None
         cutoff = self._newest_source_ts - window_seconds
@@ -121,10 +182,39 @@ class FinalHistory:
         # public segment-order contract before encoding the message.
         if any(
             left.segment > right.segment
-            for left, right in zip(selected, selected[1:])
+            for left, right in itertools.pairwise(selected)
         ):
             selected.sort(key=lambda c: (c.segment, c.revision))
-        return self._encode_history(selected)
+        return tuple(selected)
+
+    def cached_history(
+        self,
+        last_segment: int,
+        last_revision: int,
+        seconds: float,
+    ) -> str:
+        """Return a cached or newly constructed HISTORY message."""
+
+        request = self._normalize_request(last_segment, last_revision, seconds)
+        cached = self._message_cache.get(request)
+        if cached is not None:
+            return cached
+
+        items = self.history_for(*request)
+        message = self.history_msg(items)
+        self._message_cache.put(request, message)
+        return message
+
+    @staticmethod
+    def history_msg(items: Iterable[Caption]) -> str:
+        """Construct a compact HISTORY message from finalized captions."""
+
+        items = tuple(items)
+        if not items:
+            return '{"type":"HISTORY","items":[]}'
+        return '{"type":"HISTORY","items":[' + ",".join(
+            c.wire for c in items
+        ) + "]}"
 
     def _prune(self) -> None:
         # Helper function to remove entries with ts outside of max seconds window
@@ -164,19 +254,29 @@ class FinalHistory:
             return cls.MAX_REQUEST_SECONDS
         return min(value, cls.MAX_REQUEST_SECONDS)
 
+    @classmethod
+    def _normalize_request(
+        cls,
+        last_segment: int,
+        last_revision: int,
+        seconds: float,
+    ) -> tuple[int, int, float]:
+        last_seg = max(0, cls._safe_int(last_segment, default=0))
+        last_rev = max(0, cls._safe_int(last_revision, default=0))
+        if last_seg == 0:
+            last_rev = 0
+
+        if last_seg > 0:
+            # Resumes always use the complete recovery window, regardless of
+            # the smaller window a late joiner may have requested.
+            window_seconds = cls.MAX_REQUEST_SECONDS
+        else:
+            window_seconds = cls._clamp_seconds(seconds)
+        return last_seg, last_rev, window_seconds
+
     @staticmethod
     def _safe_int(value: int, default: int) -> int:
         try:
             return int(value)
         except (TypeError, ValueError):
             return default
-
-    @staticmethod
-    def _encode_history(items: tuple[Caption, ...] | list[Caption]) -> str:
-        # The wrapper is encoded once, while each caption retains the compact
-        # wire representation created by protocol.caption_from().
-        if not items:
-            return json.dumps({"type": "HISTORY", "items": []}, separators=(",", ":"))
-        return '{"type":"HISTORY","items":[' + ",".join(
-            c.wire for c in items
-        ) + "]}"

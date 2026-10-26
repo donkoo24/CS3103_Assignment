@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 from typing import Any
 from liverecall.protocol import parse, caption_from
 from liverecall.state import CaptionState
@@ -81,7 +80,7 @@ async def handle_client(ws, hello: dict[str, Any]) -> None:
     history_sec = float(hello.get("history_seconds", 30))
 
     # Atomic Handshake: Generate history and register synchronously to prevent client from missing caption
-    hist_msg = HISTORY.history_msg(last_seg, last_rev, history_sec)
+    hist_msg = HISTORY.cached_history(last_seg, last_rev, history_sec)
     session = HUB.register(ws, client_id, first_messages=[hist_msg])
     
     print(f"Client connected: id={client_id}", flush=True)
