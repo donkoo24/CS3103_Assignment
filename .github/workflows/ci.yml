@@ -28,7 +28,7 @@ jobs:
       - name: Run Unit Tests
         run: |
           python -m pytest -q
-          node --test client/tests/
+          node --test client/tests/*.test.*
 
       - name: Check Start Path Compatibility
         run: python submission_check.py
