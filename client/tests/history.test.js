@@ -19,7 +19,7 @@ test("stores only finals and recalls them chronologically", () => {
 test("clamps recall windows to the supported range", () => {
   const history = createHistory({ now: () => 1_000 });
   history.addFinal(caption(1, 1, 940));
-  history.addFinal(caption(2, 1, 950));
+  history.addFinal(caption(2, 1, 990));
 
   assert.deepEqual(history.recall(15).map((item) => item.segment), [2]);
   assert.deepEqual(history.recall(60).map((item) => item.segment), [1, 2]);
