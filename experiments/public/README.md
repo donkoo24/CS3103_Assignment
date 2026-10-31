@@ -1,16 +1,15 @@
 # Required public-test evidence
 
-`t1`–`t5`: refreshed after PRs #16 and #17 merged, with three independent
-restarts per case on the reduced configuration,
-run sequentially in an isolated user/network namespace on the existing Ubuntu
+`t1`–`t5`: refreshed on the assembled PR #19 server code after PRs #16
+and #17 merged, with three independent restarts per case, run sequentially in an isolated user/network namespace on the existing Ubuntu
 22.04.5 VM. Each directory contains original analyser JSON, losslessly compressed
 instructor CSV, logs, RSS and exact source/settings metadata. Percentiles in
 `summary.json` are medians of per-run percentiles. Netem randomness is not fixed.
 
-T5 run 2 reached 99.98% final completeness (one final out of 4,900 was not
-observed by the end); T5's three-run median is 100%. All three runs remain
-visible. The PDF's hidden-mark cap starts below 99%; this public result is
-reported honestly, without inferring that the final would never arrive.
+All three refreshed T5 runs reached 100% final completeness (4,900/4,900
+per run). An earlier separate campaign missed the last final in one T5 run;
+netem randomness and timing differ, so that change cannot be attributed to
+PR #19. The PDF's hidden-mark cap starts below 99%.
 
 `comparison/fifo` and `comparison/semantic`: the one retained earlier controlled
 T3 pair, three independent repeats each. Both ran with the same four-CPU affinity
@@ -37,7 +36,7 @@ program or measurement logic was edited. The larger optional matrices, source
 bundles and failed sweep trials are no longer submission artifacts; the old
 feature branches were backed up locally before rewriting them.
 
-The report discusses source-state pruning and malformed HELLO review still needed
-in peer wiring. These results establish deterministic public behavior only, not
+PR #19 adds source-state pruning and malformed HELLO handling to the
+assembled campaign; it needs peer review before merging. These results establish deterministic public behavior only, not
 complete application correctness or hidden-performance marks. Inspect all three
 runs, not only medians, for completeness and nonzero error counters.
