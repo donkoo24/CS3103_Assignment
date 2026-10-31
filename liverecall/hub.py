@@ -51,6 +51,7 @@ from typing import Any, Protocol
 from websockets.exceptions import ConnectionClosed
 
 from .mailbox import Mailbox
+from .policy import Action, FifoMailbox, on_backlog
 
 log = logging.getLogger("liverecall.hub")
 
@@ -65,6 +66,7 @@ class Publishable(Protocol):
 
 @dataclass(frozen=True)
 class DeliveryConfig:
+    delivery: str = "semantic"
     finals_cap: int = 512  # pending finals per client before forcing a resync
     write_limit: int = 4096  # asyncio write-buffer high-water mark (bytes)
     notsent_lowat: int = 16384  # kernel unsent-bytes limit (bytes), 0 = off
@@ -94,7 +96,8 @@ class Session:
         self.ws = ws
         self.client_id = client_id
         self.cfg = hub.config
-        self.mailbox = Mailbox(self.cfg.finals_cap)
+        self.mailbox = (FifoMailbox(self.cfg.finals_cap) if self.cfg.delivery == "fifo"
+                        else Mailbox(self.cfg.finals_cap))
         self.sent = 0  # frames sent (one WebSocket message each)
         self._acked = 0  # frames acknowledged by a returned probe
         self._probe_frame = 0  # self.sent when the outstanding probe was sent
@@ -117,7 +120,10 @@ class Session:
 
     # Called synchronously by Hub.publish().
     def offer(self, caption: Publishable) -> None:
-        if self.mailbox.push(caption.segment, caption.final, caption.wire):
+        accepted = self.mailbox.push(caption.segment, caption.final, caption.wire)
+        action = on_backlog({"overflowed": not accepted, "pending": len(self.mailbox)},
+                            self.cfg.finals_cap)
+        if action is Action.KEEP:
             self._wake.set()
         else:
             self.hub._overflow(self)
@@ -148,7 +154,8 @@ class Session:
                 await self.ws.send(msg)
                 self.sent += 1
                 self._last_send = self._loop.time()
-                await self._maybe_probe()
+                if self.cfg.delivery != "fifo":
+                    await self._maybe_probe()
         except ConnectionClosed:
             pass
         except Exception:  # a delivery bug must not silently stall a client
@@ -161,6 +168,8 @@ class Session:
         """Next frame to send, or None to wait. See the module docstring."""
         self._retry_at = None
         mb = self.mailbox
+        if self.cfg.delivery == "fifo":
+            return mb.pop()
         if not len(mb):
             return None
         now = self._loop.time()
@@ -258,7 +267,10 @@ class Session:
 
 class Hub:
     def __init__(self, config: DeliveryConfig | None = None) -> None:
-        self.config = config or DeliveryConfig()
+        if config is None:
+            from .config import load_from_env
+            config = load_from_env().delivery_config()
+        self.config = config
         self.sessions: set[Session] = set()
         self.lag_events = 0
         self.overflows = 0
