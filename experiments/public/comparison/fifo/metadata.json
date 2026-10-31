@@ -1,0 +1,54 @@
+{
+  "scenario": "t3",
+  "network": "none",
+  "iface": "lo",
+  "overrides": [
+    "run_demo.py",
+    "--clients",
+    "100",
+    "--duration",
+    "60",
+    "--runs",
+    "3",
+    "--quiet-server",
+    "--slow-percent",
+    "10",
+    "--slow-ms",
+    "500",
+    "--seed",
+    "3103"
+  ],
+  "revision": "f85a15a917b00d6bf0a7365717865cbdd4ec5f16",
+  "knobs": {
+    "LR_RATE": "2mbit",
+    "LR_COMPRESSION": "none",
+    "LR_WRITE_LIMIT": "4096",
+    "LR_DELIVERY": "fifo",
+    "LR_T2_BASELINE": "/home/user1/CS3103_Assignment/.validation/original/experiments/t2/20261025T150448-4050/median.json",
+    "LR_MAX_QUEUE": "16",
+    "LR_FINALS_CAP": "512",
+    "LR_IFACE": "lo",
+    "LR_PROBE_INTERVAL": "1"
+  },
+  "python": "3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0]",
+  "effective_config": {
+    "write_limit": 4096,
+    "max_queue": 16,
+    "compression": null,
+    "finals_cap": 512,
+    "delivery": "fifo",
+    "backlog": 4096
+  },
+  "memory_total": "MemTotal:       12244448 kB",
+  "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+  "cpu_count": 16,
+  "cpu_affinity": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "network_namespace": "net:[4026532685]",
+  "websockets": "16.1.1",
+  "dirty": false
+}
