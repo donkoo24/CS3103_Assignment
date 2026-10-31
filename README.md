@@ -44,7 +44,7 @@ review and record the required demo video before submission.
 
 ## Public experiments
 
-After merging PR #11's public-test wrapper with the server and policy:
+After merging PR #11's public-test wrapper with the server, policy and PR #19:
 
 ```sh
 bash scripts/stress.sh t1
@@ -73,8 +73,8 @@ stricter CI checks are separate development criteria.
 limitations and future work. Rebuild `report.pdf` using `python scripts/build_report.py`.
 Rebuild figures using `python scripts/plot_experiments.py`.
 
-Before submission: merge PR #18 and Leonard’s PRs, review the browser demo,
-bound the long-lived client store and server revision state, and review the four-page
+Before submission: merge PR #18 and Leonard’s PRs, including the
+cross-component retention fix in PR #19; review the browser demo and four-page
 report and AI usage; agree the contribution percentages; record the compulsory
 5–7 minute demo video; run `python submission_check.py --final` on a clean checkout.
 A file-presence check does not certify these human deliverables. No final tag is set.

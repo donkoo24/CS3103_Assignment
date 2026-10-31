@@ -15,9 +15,10 @@ compact encoded caption. SOURCE_DONE does not become a caption.
 
 Don's CaptionState accepts a previously unseen segment or a strictly newer revision
 of an unfinished segment. Once final, the segment cannot be overwritten. One wire
-representation is reused across recipients and recovery history. Global revision
-state must also be pruned; the inspected wiring still needs that hook before it
-meets the PDF's bounded-state requirement.
+representation is reused across recipients and recovery history. In the
+assembled run, PR #19 prunes global revision metadata below the oldest retained
+final and rejects replay of evicted segments. This cross-component fix
+needs Don and Dylan's review before merging.
 
 ## Independent delivery and overload
 
@@ -82,12 +83,10 @@ The team must still review the user-facing demo and record its video.
 
 ## Remaining correctness checks
 
-The existing server wiring still needs bounded revision-state pruning and stronger
-validation of malformed HELLO fields. Don's merged browser store also retains every seen segment in a Map,
-so it needs a retention/pruning bound for long lectures. These are required
-robustness tasks for the component owners, despite deterministic public
-experiments succeeding. A real
-two-tab demo must verify revision replacement, all recall windows, disconnect and
+PR #19 proposes bounded server revision state, a 512-entry client-store
+retention floor and protocol close code 1008 for malformed HELLO cursors. Don
+and Dylan must review those changes before merging. A human-reviewed two-tab
+demo must verify revision replacement, all recall windows, disconnect and
 incremental recovery without duplicates, late joining and readable status. Peer
 code assembled for measurement retains its original ownership and review needs.
 
@@ -114,12 +113,12 @@ coverage and recovery where the analyser supplies those fields.
 [RESULTS]
 
 T1 and T2 have 100% median revision coverage and final completeness. In T3,
-normal-reader P95 is 7.69 ms (T2: 8.28 ms); all 90 normal readers receive all
+normal-reader P95 is 7.03 ms (T2: 7.85 ms); all 90 normal readers receive all
 228 revisions each. The analyser's normal_update_coverage_pct field aggregates
 all clients, including slow ones, despite its name. T3 RSS is about 26–27 MiB
 per server process across these short runs; this does not prove long-run bounds.
 
-T4 has 100% median final completeness and median recovery P95 of 2.73 ms.
+T4 has 100% median final completeness and median recovery P95 of 2.51 ms.
 No duplicate, stale, invalid-history or connection-error events occur in its three
 runs. Recovery timing is measured alongside delivered finals, not in isolation.
 
@@ -150,11 +149,10 @@ three runs. TCP retransmits lost data and delivers bytes in order: packet loss
 principally appears as delayed captions and larger tail age. Later bytes can wait
 for a missing earlier range. Semantic queues replace pending obsolete provisionals,
 but cannot edit frames already sent to TCP. This plot alone does not identify the
-retransmission responsible for any particular delay. In T5 run 2, final completeness was 99.98% (4,899 of 4,900):
-client 78 received provisional revisions of the last segment but its final was
-not observed before the test ended. The table's three-run median is 100%,
-which must not hide that individual miss. The trace does not establish whether
-the final would have arrived with a longer drain interval.
+retransmission responsible for any particular delay. All three refreshed T5
+runs delivered 4,900 of 4,900 finals. One run in the earlier separate campaign
+missed its last final before test end; changed netem randomness and timing mean
+the difference cannot be attributed to the retention fix.
 
 ## Trade-offs and limitations
 
@@ -172,9 +170,8 @@ score is claimed. Public success cannot establish all burst, reconnect-storm or
 bandwidth behavior. The PDF's completeness levels below 99% and 95% cap hidden
 marks; stricter team CI and latency/freshness goals are internal criteria.
 
-Before submission: merge PR #18 before #13, wire state pruning,
-review malformed handshakes, verify the two-tab demo, review the report with
-component owners, agree contribution percentages and record the compulsory
+Before submission: merge PR #18 before #13 and review/merge PR #19;
+verify the two-tab demo, review the report with component owners, agree contribution percentages and record the compulsory
 5–7 minute video. Passing submission_check.py only verifies its actual checks;
 it cannot certify these remaining requirements or individual understanding.
 

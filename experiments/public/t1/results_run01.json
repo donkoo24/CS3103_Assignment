@@ -9,9 +9,9 @@
   "invalid_history_nonfinal": 0,
   "connections": 20,
   "connection_errors": 0,
-  "p50_ms": 1.3795,
-  "p95_ms": 2.1792499999999997,
-  "p99_ms": 2.7267799999999816,
+  "p50_ms": 1.3615,
+  "p95_ms": 2.22435,
+  "p99_ms": 2.9487399999999973,
   "fresh_pct": 100.0,
   "fresh_final_pct": 100.0,
   "fresh_final_count": 440,
@@ -24,8 +24,8 @@
   "normal_update_coverage_pct": 100.0,
   "normal_clients": {
     "messages": 1320,
-    "p50_ms": 1.3795,
-    "p95_ms": 2.1792499999999997,
+    "p50_ms": 1.3615,
+    "p95_ms": 2.22435,
     "fresh_pct": 100.0
   }
 }
