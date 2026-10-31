@@ -36,3 +36,23 @@ test('CaptionStore accurately tracks latestFinal', () => {
     assert.strictEqual(latest.segment, 3);
     assert.strictEqual(latest.revision, 2);
 });
+
+test('CaptionStore bounds retained segments without reviving old finals', () => {
+    const store = new CaptionStore();
+    for (let segment = 1; segment <= 1000; segment++) {
+        store.apply({ segment, revision: 1, final: true, text: String(segment) });
+    }
+    assert.strictEqual(store.latest.size, 512);
+    assert.deepStrictEqual(store.latestFinal(), { segment: 1000, revision: 1 });
+    assert.strictEqual(store.apply({ segment: 1, revision: 2, final: true, text: 'replay' }).accepted, false);
+    assert.strictEqual(store.apply({ segment: 1000, revision: 2, final: true, text: 'replay' }).accepted, false);
+});
+
+test('CaptionStore rejects malformed updates before retention accounting', () => {
+    const store = new CaptionStore();
+    for (let i = 0; i < 600; i++) {
+        assert.strictEqual(store.apply({ revision: 1, final: true, text: 'bad' }).accepted, false);
+    }
+    assert.strictEqual(store.latest.size, 0);
+    assert.strictEqual(store.apply(null).accepted, false);
+});
