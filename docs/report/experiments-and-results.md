@@ -72,12 +72,13 @@ the pending render map each have a 300-entry bound. Semantic processing is immed
 painting uses one requestAnimationFrame callback. Scrolling up pauses following,
 with a Return to live control. Recall defaults to 30 seconds with 15/30/60 buttons.
 
-Don's ES-module store is now merged on `main`, and Leonard's separate PR #13
-provides a browser adapter for it. Dylan's browser history module is still
-absent; it must preserve at least 60 seconds of finals, merge recovered history
-without duplication, and service recall locally. Damian's connection manager is now merged and matches the shell adapter.
-The shell's fake-DOM tests exercise the modules, but they do not establish
-an integrated two-tab demo.
+Don's ES-module store and Damian's connection manager are merged on `main`.
+Dylan's browser history module is in PR #18; Leonard's shell PR #13 imports
+it and should merge after #18. The history keeps 90 seconds of finals with
+a 512-item bound, merges recovered captions without duplication and serves
+recall locally. A headless Chromium two-tab check exercised live captions,
+late join, offline/reconnect and recovered rows with the deterministic source.
+The team must still review the user-facing demo and record its video.
 
 ## Remaining correctness checks
 
@@ -171,7 +172,7 @@ score is claimed. Public success cannot establish all burst, reconnect-storm or
 bandwidth behavior. The PDF's completeness levels below 99% and 95% cap hidden
 marks; stricter team CI and latency/freshness goals are internal criteria.
 
-Before submission: integrate the remaining browser modules, wire state pruning,
+Before submission: merge PR #18 before #13, wire state pruning,
 review malformed handshakes, verify the two-tab demo, review the report with
 component owners, agree contribution percentages and record the compulsory
 5–7 minute video. Passing submission_check.py only verifies its actual checks;

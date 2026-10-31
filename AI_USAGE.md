@@ -3,7 +3,7 @@
 Leonard: I used OpenAI Codex to help implement runtime configuration and bounded
 overload handling, the browser shell, public-test scripts and experiment/report
 preparation. I also used it to inspect teammates' open PRs, identify integration
-dependencies, adapt the browser shell to Don's merged ES module store, draft
+dependencies, adapt the browser shell to Don's store and Dylan's history module, draft
 tests and execute checks on the Ubuntu VM. This included
 substantial code assistance. I remain responsible for reviewing and understanding
 my contribution before merging and for explaining it during the viva.
@@ -25,5 +25,5 @@ removed. Measurements are retained only for the settings actually tested.
 The existing notes record Damian's Claude Code assistance for mailbox and Hub
 work, including corrected generated bugs. Each member must review their own usage
 record; this document does not infer unrecorded usage for teammates. Pending
-browser integration, the demo video and the contribution agreement are not claimed
-complete. AI assistance does not replace team review or individual understanding.
+merge of the integrated browser PR, the demo video and the contribution
+agreement are not claimed complete. AI assistance does not replace team review or individual understanding.
