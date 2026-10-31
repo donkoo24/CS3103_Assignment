@@ -9,7 +9,8 @@
 
 Responsibilities describe the team plan and must be checked against merged PRs.
 Don's browser store and Damian's connection manager are merged. Dylan's
-browser history module still needs integration with Leonard's shell. Leonard's
+browser history is in PR #18; Leonard's shell PR #13 imports it and should
+merge after #18. Leonard's
 server measurements combine peer components for testing and do not transfer
 ownership of those components. Final percentages require actual team agreement;
 no equal split is assumed. Add student IDs and confirm completed contributions
