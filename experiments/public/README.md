@@ -25,14 +25,14 @@ retention fix. Metadata records Git revision, settings, CPU and namespace;
 history are not exercised by the simulated-client tests. The comparison tests
 slow readers, with no `tc` bandwidth cap or packet loss.
 
-The Hub and server wiring from PRs #6 and #10 are now on `main`. Reproduce
-after merging PRs #11 and #12; run the five commands in README.md, then the
+The Hub, server wiring, test wrapper and policy from PRs #6, #10, #11 and #12
+are now on `main`. Reproduce with the five commands in README.md, then the
 two T3 commands in docs/before-after.md. No instructor test
 program or measurement logic was edited. The larger optional matrices, source
 bundles and failed sweep trials are no longer submission artifacts; the old
 feature branches were backed up locally before rewriting them.
 
 PR #19 adds source-state pruning and malformed HELLO handling to the
-assembled campaign; it needs peer review before merging. These results establish deterministic public behavior only, not
+assembled campaign; its cross-component behavior needs peer review before final submission. These results establish deterministic public behavior only, not
 complete application correctness or hidden-performance marks. Inspect all three
 runs, not only medians, for completeness and nonzero error counters.

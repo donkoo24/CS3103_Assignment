@@ -23,12 +23,12 @@ the report now distinguishes them from the PDF's completeness grading caps.
 The extra probe-interval knob and an unproven multi-setting default change were
 removed. Measurements are retained only for the settings actually tested.
 
-PR #19 is a proposed cross-component fix and still needs Don and Dylan
-to review its effect on their state, history and browser store modules.
+PR #19 merged into `main`; Don and Dylan still need to review its effect on
+their state, history and browser store modules before final submission.
 
 The existing notes record Damian's Claude Code assistance for mailbox and Hub
 work, including corrected generated bugs. Each member must review their own usage
 record; this document does not infer unrecorded usage for teammates. Pending
-merge of the integrated browser PR, the demo video and the contribution
+merge of this integration PR, the demo video and the contribution
 agreement are not claimed complete. AI assistance does not replace team
 review or individual understanding.

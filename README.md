@@ -35,16 +35,16 @@ The required demo shows continuous provisional/final caption replacement,
 with incremental final recovery and no duplicates. See DEMO_GUIDE.md.
 
 Don's server wiring and client store, Damian's Hub and connection module,
-and Dylan's server history are now on `main`. Leonard's separate shell PR
-#13 adapts Don's ES-module store and Damian's connection API. Dylan's browser history is in PR #18. Leonard's shell PR #13 now imports it
-and is based on #18, so merge #18 before #13. A headless Chromium check
+and Dylan's server and browser history are now on `main`. This PR brings
+Leonard's shell from PR #13 to `main`, integrating those team modules.
+A headless Chromium check
 with two tabs and the deterministic source exercised live captions, late join,
 local recall, offline/reconnect and recovered finals. The team still needs to
 review and record the required demo video before submission.
 
 ## Public experiments
 
-After merging PR #11's public-test wrapper with the server, policy and PR #19:
+With PR #11's public-test wrapper, the server, policy and PR #19 on `main`:
 
 ```sh
 bash scripts/stress.sh t1
@@ -73,8 +73,7 @@ stricter CI checks are separate development criteria.
 limitations and future work. Rebuild `report.pdf` using `python scripts/build_report.py`.
 Rebuild figures using `python scripts/plot_experiments.py`.
 
-Before submission: merge PR #18 and Leonard’s PRs, including the
-cross-component retention fix in PR #19; review the browser demo and four-page
+Before submission: merge this integration PR; review the browser demo and four-page
 report and AI usage; agree the contribution percentages; record the compulsory
 5–7 minute demo video; run `python submission_check.py --final` on a clean checkout.
 A file-presence check does not certify these human deliverables. No final tag is set.

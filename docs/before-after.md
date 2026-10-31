@@ -2,8 +2,8 @@
 
 The PDF requires at least one public stress comparison. Use T3 with the same
 source revision and all transport settings unchanged; disable only semantic
-scheduling. The real Hub and server wiring are now on `main`. Merge PR #12 for the
-semantic/FIFO switch and PR #11 for the public-test wrapper before running. No historical source rewriting,
+scheduling. The real Hub, server wiring, PR #12 policy switch and PR #11
+public-test wrapper are now on `main`. No historical source rewriting,
 snapshot builder, full sweep or hidden-test matrix is needed.
 
 ```sh
@@ -19,6 +19,6 @@ Keep all three per-run summaries and logs; do not substitute a fast but incomple
 run for a successful optimization. FIFO is an experimental mode only.
 
 The retained measured comparison is in `experiments/public/comparison/` on the
-report branch. Its source hashes and settings are recorded alongside the data.
+integration branch. Its source hashes and settings are recorded alongside the data.
 It improves completeness and tail age, with slow-reader freshness still limited.
 No claim is made that these settings optimize constrained-bandwidth hidden tests.

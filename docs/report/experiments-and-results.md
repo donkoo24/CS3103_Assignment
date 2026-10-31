@@ -15,10 +15,10 @@ compact encoded caption. SOURCE_DONE does not become a caption.
 
 Don's CaptionState accepts a previously unseen segment or a strictly newer revision
 of an unfinished segment. Once final, the segment cannot be overwritten. One wire
-representation is reused across recipients and recovery history. In the
-assembled run, PR #19 prunes global revision metadata below the oldest retained
-final and rejects replay of evicted segments. This cross-component fix
-needs Don and Dylan's review before merging.
+representation is reused across recipients and recovery history. PR #19, now on
+`main`, prunes global revision metadata below the oldest retained final and
+rejects replay of evicted segments. Don and Dylan should review this
+cross-component behavior before final submission.
 
 ## Independent delivery and overload
 
@@ -73,9 +73,9 @@ the pending render map each have a 300-entry bound. Semantic processing is immed
 painting uses one requestAnimationFrame callback. Scrolling up pauses following,
 with a Return to live control. Recall defaults to 30 seconds with 15/30/60 buttons.
 
-Don's ES-module store and Damian's connection manager are merged on `main`.
-Dylan's browser history module is in PR #18; Leonard's shell PR #13 imports
-it and should merge after #18. The history keeps 90 seconds of finals with
+Don's ES-module store, Damian's connection manager and Dylan's browser history
+are merged on `main`. This integration PR adds Leonard's shell from PR #13.
+The history keeps 90 seconds of finals with
 a 512-item bound, merges recovered captions without duplication and serves
 recall locally. A headless Chromium two-tab check exercised live captions,
 late join, offline/reconnect and recovered rows with the deterministic source.
@@ -83,9 +83,9 @@ The team must still review the user-facing demo and record its video.
 
 ## Remaining correctness checks
 
-PR #19 proposes bounded server revision state, a 512-entry client-store
+PR #19 merged bounded server revision state, a 512-entry client-store
 retention floor and protocol close code 1008 for malformed HELLO cursors. Don
-and Dylan must review those changes before merging. A human-reviewed two-tab
+and Dylan should review those changes before final submission. A human-reviewed two-tab
 demo must verify revision replacement, all recall windows, disconnect and
 incremental recovery without duplicates, late joining and readable status. Peer
 code assembled for measurement retains its original ownership and review needs.
@@ -172,7 +172,7 @@ score is claimed. Public success cannot establish all burst, reconnect-storm or
 bandwidth behavior. The PDF's completeness levels below 99% and 95% cap hidden
 marks; stricter team CI and latency/freshness goals are internal criteria.
 
-Before submission: merge PR #18 before #13 and review/merge PR #19;
+Before submission: merge this integration PR and review PR #19's cross-component behavior;
 verify the two-tab demo, review the report with component owners, agree contribution percentages and record the compulsory
 5–7 minute video. Passing submission_check.py only verifies its actual checks;
 it cannot certify these remaining requirements or individual understanding.

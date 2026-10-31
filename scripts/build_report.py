@@ -34,7 +34,7 @@ def main():
             flow.extend([Paragraph(escape(para.lstrip("# ")).replace("\n"," "),styles["Heading2"] if heading else styles["BodyText"]),Spacer(1,6)])
     def footer(canvas,doc):
         canvas.setFont("Helvetica",8)
-        canvas.drawString(40,25,"Team review draft: PR merges, contribution agreement and video pending")
+        canvas.drawString(40,25,"Team review draft: integration PR, contribution agreement and video pending")
         canvas.drawRightString(A4[0]-40,25,str(doc.page))
     SimpleDocTemplate("report.pdf",pagesize=A4,leftMargin=40,rightMargin=40,topMargin=35,bottomMargin=45,title="LiveRecall: design and public experiments").build(flow,onFirstPage=footer,onLaterPages=footer)
 
