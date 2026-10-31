@@ -124,19 +124,21 @@ runs. Recovery timing is measured alongside delivered finals, not in isolation.
 
 ## One before/after comparison
 
-The retained earlier T3 FIFO/semantic pair used four CPUs per namespace in this
-same VM while other experiments ran in separate CPU partitions. Both modes used
-the same four CPUs, 100 clients, 60 seconds, 10% slow readers, three restarts,
-seed 3103, write limit 4096, queue 16 and no compression. Only semantic scheduling
-was disabled/enabled. It is a controlled comparison within that pair; differences
-from the newer whole-VM public tests cannot be attributed solely to optimization.
+The paired T3 rerun used the same assembled Git revision in one private network
+namespace with four-CPU affinity. Both modes ran sequentially with 100 clients,
+60 seconds, 10% slow readers at 500 ms, three server restarts, seed 3103, 4096-byte
+writes, queue 16 and no compression. Only `LR_DELIVERY` changed from FIFO to
+semantic. Metadata records the same revision, CPU affinity, namespace and effective
+settings except delivery. The separate public campaign used 16 CPUs, so its absolute
+latencies should not be treated as the before/after comparison.
 
 Median final completeness improved from 95.13% in FIFO to 100.00% in semantic mode;
-overall P99 fell from 24045.80 ms to 5596.17 ms. Coalescing obsolete provisionals
-and batching finals help lagging readers converge. This does not prove every
-final is fresh or establish the best configuration for hidden bandwidth tests.
-The large optional sweep, repeated matrices and source bundles were removed from
-the submission. Earlier work remains in a local backup outside tracked files.
+overall P99 fell from 24049.24 ms to 5588.78 ms. Normal-reader P95 rose from
+8.46 to 10.40 ms, while slow-reader P95 fell from 28121.03 to 9008.18 ms.
+Coalescing obsolete provisionals and batching finals help lagging readers
+converge. This does not prove every final is fresh or establish the best setting
+for hidden bandwidth tests. The large optional sweep and repeated matrices were
+removed from the submission.
 
 <!-- page -->
 
@@ -164,8 +166,8 @@ by history retention. Compression trades bandwidth for CPU/memory; no optimum is
 claimed. The memory plot retains separate server processes across the three restarts.
 
 These are deterministic local public workloads. Shared VM activity and unfixed
-netem loss randomness can vary between repeats. The earlier comparison had a
-different CPU partition from the newer public tests. No CPU-cost study or hidden
+netem loss randomness can vary between repeats. The four-CPU comparison had a
+different CPU partition from the 16-CPU public tests. No CPU-cost study or hidden
 score is claimed. Public success cannot establish all burst, reconnect-storm or
 bandwidth behavior. The PDF's completeness levels below 99% and 95% cap hidden
 marks; stricter team CI and latency/freshness goals are internal criteria.
