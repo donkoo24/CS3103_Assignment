@@ -1,0 +1,31 @@
+{
+  "scenario": "t3",
+  "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+  "python": "3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0]",
+  "websockets": "16.1.1",
+  "effective_config": {
+    "write_limit": 4096,
+    "max_queue": 16,
+    "compression": null,
+    "finals_cap": 512,
+    "delivery": "semantic",
+    "backlog": 4096
+  },
+  "knobs": {
+    "LR_COMPRESSION": "none",
+    "LR_OUTPUT": "experiments/comparison-new/semantic",
+    "LR_WRITE_LIMIT": "4096",
+    "LR_DELIVERY": "semantic",
+    "LR_MAX_QUEUE": "16",
+    "LR_FINALS_CAP": "512"
+  },
+  "revision": "e2382e3c6c994d0c3f0fafcd2879238071ea458f",
+  "dirty": false,
+  "cpu_affinity": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "network_namespace": "net:[4026532597]"
+}
