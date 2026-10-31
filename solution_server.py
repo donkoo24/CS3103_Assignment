@@ -67,6 +67,8 @@ async def handle_source(ws, hello: dict[str, Any]) -> None:
             if STATE.apply(cap):
                 if cap.final:
                     HISTORY.add(cap)
+                    if HISTORY.oldest_segment is not None:
+                        STATE.prune(HISTORY.oldest_segment)
                 HUB.publish(cap)
     finally:
         if active_source_ws == ws:
@@ -76,10 +78,13 @@ async def handle_source(ws, hello: dict[str, Any]) -> None:
 
 async def handle_client(ws, hello: dict[str, Any]) -> None:
     client_id = hello.get("client_id")
-    client_id = hello.get("client_id")
-    last_seg = int(hello.get("last_segment", 0))
-    last_rev = int(hello.get("last_revision", 0))
-    history_sec = float(hello.get("history_seconds", 30))
+    try:
+        last_seg = int(hello.get("last_segment", 0))
+        last_rev = int(hello.get("last_revision", 0))
+        history_sec = float(hello.get("history_seconds", 30))
+    except (TypeError, ValueError, OverflowError):
+        await ws.close(code=1008, reason="Invalid CLIENT_HELLO fields")
+        return
 
     # Atomic Handshake: Generate history and register synchronously to prevent client from missing caption
     hist_msg = HISTORY.cached_history(last_seg, last_rev, history_sec)

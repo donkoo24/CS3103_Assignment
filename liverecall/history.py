@@ -116,6 +116,11 @@ class FinalHistory:
     def __len__(self) -> int:
         return len(self._time_items)
 
+    @property
+    def oldest_segment(self) -> int | None:
+        """Lowest retained final segment, for revision-state pruning."""
+        return self._segment_keys[0][0] if self._segment_keys else None
+
     def add(self, c: Caption) -> None:
         # Add one accepted final caption, ignoring unsupported entries.
 
