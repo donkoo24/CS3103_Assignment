@@ -43,7 +43,8 @@
       row.dataset.segment = String(caption.segment);
       const label = doc.createElement("span");
       label.className = "caption-label";
-      label.textContent = `${recovered ? "Recovered · " : ""}Segment ${caption.segment} · ${caption.final ? "Final" : "Updating…"}`;
+      const prefix = caption.final ? "[FINAL]" : "[PROVISIONAL]";
+      label.textContent = `${prefix} ${recovered ? "Recovered · " : ""}Segment ${caption.segment} · ${caption.final ? "Final" : "Updating…"}`;
       const text = doc.createElement("span");
       text.textContent = caption.text; // Text never becomes HTML from a remote source.
       row.append(label, text);
