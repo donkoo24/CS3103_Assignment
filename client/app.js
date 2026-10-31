@@ -16,6 +16,7 @@
  *   - usable final UI
  */
 import { CaptionStore } from './store.js';
+import { createHistory } from './history.js';
 
 const WS_URL = "ws://127.0.0.1:8765";
 const statusEl = document.getElementById("status");
@@ -23,7 +24,11 @@ const liveEl = document.getElementById("live");
 const recallEl = document.getElementById("recall");
 
 const store = new CaptionStore();
+const history = createHistory();
 const segmentRows = {}; // Track DOM elements by segment ID
+const recoveredSegments = new Set(); // Bounded to the local history item cap.
+const MAX_RECOVERED_MARKS = 512;
+let recallSeconds = 30;
 let ws;
 
 function numericClientId() {
@@ -36,10 +41,36 @@ function numericClientId() {
   return Number(value);
 }
 
-function handleCaptionUpdate(msg) {
+function renderRecall() {
+    const items = history.recall(recallSeconds);
+    if (!items.length) {
+        recallEl.textContent = "No finalized captions in this window.";
+        return;
+    }
+
+    const now = Date.now() / 1000;
+    recallEl.textContent = items.map((caption) => {
+        const age = Math.max(0, Math.round(now - caption.source_ts));
+        const label = recoveredSegments.has(caption.segment) ? "RECOVERED" : "FINAL";
+        return `[${label}] ${age}s ago · segment ${caption.segment}: ${caption.text}`;
+    }).join("\n");
+}
+
+function markRecovered(segment) {
+    if (recoveredSegments.size >= MAX_RECOVERED_MARKS && !recoveredSegments.has(segment)) {
+        recoveredSegments.delete(recoveredSegments.values().next().value);
+    }
+    recoveredSegments.add(segment);
+}
+
+function handleCaptionUpdate(msg, recovered = false) {
     // 1. Pass through the client-side state firewall to ensure it's a valid caption (i.e. not another caption after segement was "final" and strictly newer)
     const { accepted } = store.apply(msg);
     if (!accepted) return;
+
+    if (msg.final && !recovered) {
+        history.addFinal(msg);
+    }
 
     // 2. Format the text visually
     const stateLabel = msg.final ? "FINAL" : "PROVISIONAL";
@@ -65,8 +96,14 @@ function handleCaptionUpdate(msg) {
         row.style.fontStyle = "italic";
         row.style.fontWeight = "normal";
     }
+
+    if (recovered || recoveredSegments.has(msg.segment)) {
+        row.dataset.recovered = "true";
+        row.style.backgroundColor = "#fff7cc";
+    }
     
     liveEl.scrollTop = liveEl.scrollHeight;
+    renderRecall();
 }
 
 function connect() {
@@ -91,9 +128,15 @@ function connect() {
     if (msg.type === "CAPTION_UPDATE") {
       handleCaptionUpdate(msg);
     } else if (msg.type === "HISTORY") {
-      console.log(`HISTORY with ${msg.items?.length ?? 0} item(s)`, msg);
-      // TODO: merge history without stale/duplicate final captions.
-      // Dylan to implement the History merge
+      const items = Array.isArray(msg.items)
+        ? msg.items.filter((item) => item && item.final === true)
+        : [];
+      const recovered = history.mergeHistory(items);
+      for (const caption of recovered) {
+        markRecovered(caption.segment);
+        handleCaptionUpdate(caption, true);
+      }
+      renderRecall();
     }
   });
 
@@ -110,9 +153,10 @@ function connect() {
 
 for (const button of document.querySelectorAll("button[data-seconds]")) {
   button.addEventListener("click", () => {
-    const seconds = Number(button.dataset.seconds);
-    recallEl.textContent = `TODO: show finalized captions from the previous ${seconds} seconds using local state.`;
+    recallSeconds = Number(button.dataset.seconds);
+    renderRecall();
   });
 }
 
+renderRecall();
 connect();

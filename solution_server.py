@@ -33,6 +33,8 @@ from liverecall.hub import Hub
 
 import websockets
 
+from liverecall.policy import apply_startup_limits
+
 STATE = CaptionState()
 HISTORY = FinalHistory()
 HUB = Hub()
@@ -122,6 +124,7 @@ async def main_async(port: int) -> None:
         handler,
         "0.0.0.0",
         port,
+        **apply_startup_limits(),
         max_size=2**20,
         ping_interval=20,
         ping_timeout=20,
