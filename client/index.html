@@ -3,27 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>LiveRecall Student Client</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-    #status { font-weight: 700; }
-    #live { min-height: 6rem; border: 1px solid #bbb; border-radius: .4rem; padding: 1rem; margin: 1rem 0; }
-    .naive-line { padding: .25rem 0; border-bottom: 1px dotted #ddd; }
-    button { padding: .55rem .75rem; margin: .2rem; }
-    #recall { white-space: pre-wrap; margin-top: 1rem; border-left: 3px solid #ccc; padding-left: 1rem; }
-    .hint { font-size: .9rem; color: #555; }
-  </style>
+  <title>LiveRecall · Classroom captions</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>LiveRecall</h1>
-  <p>Connection: <span id="status">disconnected</span></p>
-  <div id="live"></div>
-  <div>
-    <button data-seconds="30">What did I miss? (30 s)</button>
-    <button data-seconds="15">15 s</button>
-    <button data-seconds="60">60 s</button>
-  </div>
-  <div id="recall">TODO: implement the locally maintained recall view.</div>
-  <script type="module" src="app.js"></script>
+  <header>
+    <div><p class="eyebrow">Classroom captions</p><h1>LiveRecall</h1></div>
+    <div class="connection"><span id="status" role="status">Offline</span><span id="last-update">Waiting for captions</span></div>
+  </header>
+  <p id="error" role="alert"></p>
+  <main>
+    <section aria-labelledby="live-title">
+      <div class="section-heading"><h2 id="live-title">Live captions</h2><button id="follow-live" hidden>Return to live</button></div>
+      <p class="hint">Captions update in place. Scroll up to pause automatic scrolling.</p>
+      <div id="live" tabindex="0" aria-label="Live transcript"></div>
+    </section>
+    <aside aria-labelledby="recall-title">
+      <h2 id="recall-title">What did I miss?</h2>
+      <p class="hint">Recent finalized captions, available locally.</p>
+      <div class="windows" role="group" aria-label="Recall window">
+        <button data-seconds="15" aria-pressed="false">15 s</button>
+        <button data-seconds="30" aria-pressed="true">30 s</button>
+        <button data-seconds="60" aria-pressed="false">60 s</button>
+      </div>
+      <div id="recall" tabindex="0" aria-label="Recalled captions"></div>
+    </aside>
+  </main>
+  <footer>Server: <span id="server-url"></span></footer>
+  <script src="connection.js"></script>
+  <script type="module">
+    import { CaptionStore } from "./store.js";
+    import { createHistory } from "./history.js";
+    window.LiveRecall = Object.assign(window.LiveRecall || {}, {
+      createStore: () => new CaptionStore(),
+      createHistory
+    });
+    await import("./app.js");
+  </script>
 </body>
 </html>

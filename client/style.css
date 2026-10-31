@@ -1,0 +1,25 @@
+:root { color-scheme: light; font: 18px/1.6 system-ui, sans-serif; color: #183047; background: #f2f5f8; }
+* { box-sizing: border-box; }
+body { max-width: 1500px; margin: 0 auto; padding: 1.5rem clamp(1rem, 4vw, 4rem); }
+header, .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+h1, h2, p { margin-top: 0; }
+h1 { font-size: 2.2rem; margin-bottom: .3rem; } h2 { font-size: 1.3rem; }
+.eyebrow { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 0; }
+.connection { display: grid; text-align: right; font-size: .85rem; }
+#status { color: #774412; font-weight: 750; } #status[data-state="connected"] { color: #146040; }
+main { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 1.5rem; }
+section, aside { background: white; border: 1px solid #d8e0e8; border-radius: .7rem; padding: 1.4rem; min-width: 0; }
+.hint, footer { color: #526478; font-size: .85rem; }
+#live, #recall { height: 62vh; overflow-y: auto; overflow-anchor: none; scroll-behavior: auto; }
+#live { font-size: clamp(1.1rem, 1.6vw, 1.5rem); }
+.caption { padding: .7rem .4rem; margin: 0; border-bottom: 1px solid #e5ebf0; overflow-wrap: anywhere; }
+.caption > span { display: block; }
+.caption-label, .caption small { font-size: .7rem; color: #526478; font-style: normal; }
+.provisional { font-style: italic; color: #596574; }
+.recovered { border-left: 3px solid #29806a; padding-left: .7rem; }
+button { cursor: pointer; font: inherit; font-size: .85rem; padding: .5rem .85rem; background: white; color: #183047; border: 1px solid #9aafc1; border-radius: .35rem; }
+button[aria-pressed="true"] { background: #183047; color: white; }
+button:focus-visible, [tabindex]:focus-visible { outline: 3px solid #1972ad; outline-offset: 3px; }
+.windows { display: flex; gap: .5rem; margin-bottom: .7rem; }
+#error { color: #a22323; } footer { margin-top: 1rem; overflow-wrap: anywhere; }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } header { align-items: start; } #live { height: 50vh; } #recall { height: 35vh; } }
