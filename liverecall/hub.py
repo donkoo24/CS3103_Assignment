@@ -61,6 +61,7 @@ class DeliveryConfig:
     hold_max: float = 120.0  # ... and doubled for every repeated strike
     strike_decay: float = 60.0  # lag-free seconds that forgive one strike
     reader_batch_gap: float = 1.5  # seconds between degraded reader batches
+    idle_flush_delay: float = 0.5  # bounded wait for finals after source silence
 
 
 class Session:
@@ -88,6 +89,7 @@ class Session:
         self._loop = asyncio.get_running_loop()
         self._wake = asyncio.Event()
         self._last_send = -math.inf
+        self._last_offer = -math.inf
         self._probe: asyncio.Future[float] | None = None
         self._probe_sent = -math.inf
         self._probe_lagged = False
@@ -102,6 +104,7 @@ class Session:
 
     # Called synchronously by Hub.publish().
     def offer(self, caption: Publishable) -> None:
+        self._last_offer = self._loop.time()
         accepted = self.mailbox.push(caption.segment, caption.final, caption.wire)
         action = on_backlog({"overflowed": not accepted, "pending": len(self.mailbox)},
                             self.cfg.finals_cap)
@@ -156,13 +159,20 @@ class Session:
         if not len(mb):
             return None
         now = self._loop.time()
-        if self._probe_overdue(now):  # stuck: hold everything until the pong
-            if not self._probe_lagged:
-                self._probe_lagged = True
-                self._strike(now)
+        idle_at = self._last_offer + self.cfg.idle_flush_delay
+        overdue = self._probe_overdue(now)
+        if overdue and not self._probe_lagged:
+            self._probe_lagged = True
+            self._strike(now)
+        # A quiet source cannot supersede its durable finals. Allow one extra
+        # final batch beyond the usual window, never an unbounded bypass.
+        if mb.has_final and now >= idle_at and self.sent - self._acked < self._window + 1:
+            self._catchup = False
+            return self._batch_finals()
+        if overdue or (self._probe is not None and self.sent - self._acked >= self._window):
+            if mb.has_final and idle_at > now:
+                self._retry_at = idle_at
             return None
-        if self._probe is not None and self.sent - self._acked >= self._window:
-            return None  # window full: wait for the pong (not a strike by itself)
         degraded = now < self._degraded_until
         if not degraded:
             self._window = self.cfg.window
@@ -170,7 +180,7 @@ class Session:
             if self._catchup or degraded:
                 ready_at = self._last_send + (0.0 if self._catchup else self._batch_gap)
                 if now < ready_at:
-                    self._retry_at = ready_at
+                    self._retry_at = min(ready_at, idle_at) if idle_at > now else ready_at
                     return None
                 self._catchup = False
                 return self._batch_finals()

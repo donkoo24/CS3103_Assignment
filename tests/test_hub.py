@@ -329,3 +329,43 @@ def test_reader_pacing_survives_a_shorter_pong_during_the_same_hold():
         await settle()
 
     asyncio.run(main())
+
+
+def test_idle_final_batch_wakes_without_pong_but_cannot_repeat_the_bypass():
+    async def main():
+        cfg = DeliveryConfig(window=1, lag_min=60, idle_flush_delay=0.05)
+        hub, ws = Hub(cfg), FakeWS(answer_pings=False)
+        session = hub.register(ws, 1)
+        hub.publish(Cap(1, 1, False))
+        await settle(0.01)
+        hub.publish(Cap(1, 2, True))
+        hub.publish(Cap(2, 1, True))
+        await settle(0.08)
+        assert keys(ws.sent[1]['items']) == [(1, 2), (2, 1)]
+        assert session.sent - session._acked == cfg.window + 1
+        hub.publish(Cap(3, 1, True))
+        await settle(0.08)
+        assert len(ws.sent) == 2
+        ws.pings[0].set_result(0.001)
+        await settle(0.03)
+        assert keys(ws.sent[-1:]) == [(3, 1)]
+        hub.unregister(session)
+        await settle()
+
+    asyncio.run(main())
+
+
+def test_idle_final_batch_does_not_wait_for_the_reader_timer():
+    async def main():
+        hub, ws = Hub(DeliveryConfig(idle_flush_delay=0.05)), FakeWS()
+        session = hub.register(ws, 1)
+        session._degraded_until = asyncio.get_running_loop().time() + 10
+        session._batch_gap = 10
+        session._last_send = asyncio.get_running_loop().time()
+        hub.publish(Cap(1, 1, True))
+        await settle(0.08)
+        assert keys(ws.sent) == [(1, 1)]
+        hub.unregister(session)
+        await settle()
+
+    asyncio.run(main())
