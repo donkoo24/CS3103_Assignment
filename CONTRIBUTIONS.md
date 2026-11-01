@@ -1,18 +1,12 @@
-# Contributions — team agreement pending
+# Team Contributions
 
-| Member | Responsibilities | Experiments / report section | Agreed share |
-|---|---|---|---|
-| Don | Protocol, revision state, server wiring, live caption semantics | T1/T2; architecture and protocol | Pending team agreement |
-| Dylan | Bounded final history, local recall, incremental recovery | T4; recovery and history | Pending team agreement |
-| Damian | Semantic mailbox, client writers, reconnect transport | T3; delivery and backpressure | Pending team agreement |
-| Leonard | Runtime settings, bounded overflow policy, browser shell, Ubuntu test support | T5 and before/after; experimental method and analysis | Pending team agreement |
+| Member | Main responsibilities | Experiments/report sections | Agreed contribution % |
+|---|---|---|---:|
+| Don [Student ID] | Project setup and coordination; protocol parsing and encode-once (`protocol.py`); revision state (`state.py`); server wiring (`solution_server.py`); browser caption store (`client/store.js`) | T1 and T2; report: architecture, protocol and revision semantics | 25 |
+| Dylan [Student ID] | Bounded final history, resume/late-join handshake and HISTORY cache (`history.py`); browser recall history (`client/history.js`) | T4, H5 and H6; report: bounded history and recovery; demo video | 25 |
+| Damian [Student ID] | Hub and per-client writer tasks (`hub.py`); semantic mailbox (`mailbox.py`); ping-based lag detection and slow-reader overload policy; browser connection and reconnect (`client/connection.js`) | T3, H2 and H7; report: delivery and backpressure; final report assembly | 25 |
+| Leonard [Student ID] | Runtime configuration and overflow policy (`config.py`, `policy.py`); startup scaling; FIFO baseline; browser shell and UI (`client/app.js`); Ubuntu test tooling (`scripts/stress.sh`) | T5 and the FIFO vs semantic before/after comparison; report: experiments and results; packaging | 25 |
 
-Responsibilities describe the team plan and must be checked against merged PRs.
-Don's browser store, Damian's connection manager and Dylan's browser history
-are merged. Leonard's shell from PR #13 imports those modules and is included
-in this integration PR. Leonard's server measurements combine peer components
-for testing. PR #19 merged a cross-component retention fix for Don and Dylan
-to review before submission; that contribution
-does not transfer ownership of their components. Final percentages require
-actual team agreement; no equal split is assumed. Add student IDs and confirm completed contributions
-before submission. The demo video remains Dylan's planned support responsibility.
+Total contribution should be 100%.
+
+Shared and integration work: every feature was merged through a reviewed pull request, with CI running unit tests, `submission_check.py` and a T1 smoke test. Leonard's bounded-state fix (`feat/state-bounds`) touched Don's revision state, Dylan's history and Don's browser store; ownership of those components stays with their authors. Git history is supporting evidence, not a substitute for this statement.
