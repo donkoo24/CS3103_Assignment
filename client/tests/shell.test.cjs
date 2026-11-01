@@ -37,6 +37,7 @@ test("bursts paint once with Don’s store, preserve resume and bound DOM", asyn
   callbacks.shift()();
   assert.equal(elements.live.children.length,MAX_ROWS);
   assert.equal(elements.recall.children.length,MAX_ROWS);
+  assert.match(elements.live.children.at(-1).children[0].textContent,/^\[FINAL\]/);
   assert.equal(history.size,512);
   assert.deepEqual(transport.getResumeState(),{segment:1000,revision:1});
   transport.onStatus("connected"); assert.equal(elements.status.textContent,"Connected");
@@ -53,4 +54,25 @@ test("bursts paint once with Don’s store, preserve resume and bound DOM", asyn
   callbacks.shift()();
   assert.match(elements.recall.children.at(-1).className,/recovered/);
   shell.close(); assert.equal(closed,true);
+});
+
+test("caption rows retain explicit final and provisional prefixes", async () => {
+  const elements = Object.fromEntries(["live","recall","status","last-update","follow-live"].map(k => [k,new Element()]));
+  const doc = {getElementById:k=>elements[k], querySelectorAll:()=>[], createElement:()=>new Element(),
+    createDocumentFragment:()=>Object.assign(new Element(),{fragment:true}), createTextNode:text=>({textContent:text})};
+  let callbacks=[], transport;
+  const {CaptionStore} = await import("../store.js");
+  const {createHistory} = await import("../history.js");
+  const shell=createShell({document:doc, store:new CaptionStore(), history:createHistory({now:()=>100}),
+    url:"ws://local", clientId:1, createConnection:opts=>{transport=opts; return {close(){}};},
+    requestAnimationFrame:fn=>callbacks.push(fn), setInterval:()=>1, clearInterval:()=>{}, now:()=>100000});
+
+  transport.onMessage({type:"CAPTION_UPDATE",segment:1,revision:1,final:false,text:"draft",source_ts:99});
+  callbacks.shift()();
+  assert.match(elements.live.children[0].children[0].textContent,/^\[PROVISIONAL\]/);
+
+  transport.onMessage({type:"CAPTION_UPDATE",segment:1,revision:2,final:true,text:"finished",source_ts:99});
+  callbacks.shift()();
+  assert.match(elements.live.children[0].children[0].textContent,/^\[FINAL\]/);
+  shell.close();
 });

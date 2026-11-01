@@ -10,8 +10,8 @@ h1 { font-size: 2.2rem; margin-bottom: .3rem; } h2 { font-size: 1.3rem; }
 main { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 1.5rem; }
 section, aside { background: white; border: 1px solid #d8e0e8; border-radius: .7rem; padding: 1.4rem; min-width: 0; }
 .hint, footer { color: #526478; font-size: .85rem; }
-#live, #recall { height: 62vh; overflow-y: auto; overflow-anchor: none; scroll-behavior: auto; }
-#live { font-size: clamp(1.1rem, 1.6vw, 1.5rem); }
+#live, #recall { height: 28rem; overflow-y: auto; overflow-anchor: none; scroll-behavior: auto; }
+#live { font-size: clamp(1rem, 1.3vw, 1.25rem); }
 .caption { padding: .7rem .4rem; margin: 0; border-bottom: 1px solid #e5ebf0; overflow-wrap: anywhere; }
 .caption > span { display: block; }
 .caption-label, .caption small { font-size: .7rem; color: #526478; font-style: normal; }
@@ -22,4 +22,4 @@ button[aria-pressed="true"] { background: #183047; color: white; }
 button:focus-visible, [tabindex]:focus-visible { outline: 3px solid #1972ad; outline-offset: 3px; }
 .windows { display: flex; gap: .5rem; margin-bottom: .7rem; }
 #error { color: #a22323; } footer { margin-top: 1rem; overflow-wrap: anywhere; }
-@media (max-width: 760px) { main { grid-template-columns: 1fr; } header { align-items: start; } #live { height: 50vh; } #recall { height: 35vh; } }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } header { align-items: start; } #live, #recall { height: 20rem; } }
