@@ -62,8 +62,9 @@ Alternatively use the supplied commands directly from PUBLIC_TESTS.md.
 
 See `docs/before-after.md` for the single paired T3 comparison. Semantic scheduling
 is compared with the same server in bounded FIFO mode; all other settings stay
-fixed. Defaults are conservative comparison settings, not a claimed hidden-test
-optimum. The PDF's hidden-mark completeness caps are 99% and 95%; the team's
+fixed. The recorded public campaign used 4096-byte writes and compression off. Current
+defaults use 1024-byte writes and deflate; see `docs/congestion-recovery.md` for
+the H3/H8 follow-up evidence and remaining freshness limits. The PDF's hidden-mark completeness caps are 99% and 95%; the team's
 stricter CI checks are separate development criteria.
 
 ## Report and submission

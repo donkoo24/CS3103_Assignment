@@ -32,3 +32,10 @@ record; this document does not infer unrecorded usage for teammates. Pending
 merge of this integration PR, the demo video and the contribution
 agreement are not claimed complete. AI assistance does not replace team
 review or individual understanding.
+
+For the H3/H8 follow-up, I used Codex to inspect the saved client traces and
+Hub code, draft the recovery changes and regression tests, and run the Ubuntu
+experiments. I rejected applying a small frame window to every client and
+changing TCP_NODELAY globally after the diagnostic runs got worse. The final
+results include the remaining freshness limits and missing finals rather than
+claiming the instructor's hidden tests passed.

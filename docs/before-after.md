@@ -7,8 +7,8 @@ public-test wrapper are now on `main`. No historical source rewriting,
 snapshot builder, full sweep or hidden-test matrix is needed.
 
 ```sh
-LR_DELIVERY=fifo LR_OUTPUT=experiments/before-t3 bash scripts/stress.sh t3
-LR_DELIVERY=semantic LR_OUTPUT=experiments/after-t3 bash scripts/stress.sh t3
+LR_WRITE_LIMIT=4096 LR_COMPRESSION=none LR_DELIVERY=fifo LR_OUTPUT=experiments/before-t3 bash scripts/stress.sh t3
+LR_WRITE_LIMIT=4096 LR_COMPRESSION=none LR_DELIVERY=semantic LR_OUTPUT=experiments/after-t3 bash scripts/stress.sh t3
 ```
 
 Both commands use 100 clients, 60 seconds, 10% slow readers at 500 ms, three
@@ -22,3 +22,7 @@ The retained measured comparison is in `experiments/public/comparison/` on the
 integration branch. Its source hashes and settings are recorded alongside the data.
 It improves completeness and tail age, with slow-reader freshness still limited.
 No claim is made that these settings optimize constrained-bandwidth hidden tests.
+
+The stored comparison predates the H3/H8 recovery change. Its metadata identifies
+the tested source revision; current code has different delivery behavior and
+requires a fresh comparison for new performance claims.

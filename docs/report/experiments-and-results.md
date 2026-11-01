@@ -29,9 +29,10 @@ replace obsolete versions while finals take priority. An overdue ping acknowledg
 or full unacknowledged frame window detects a lagging reader even if kernel buffers
 still accept writes. Catch-up can batch pending finals into one HISTORY frame.
 
-Leonard's defaults are a 4096-byte write limit, inbound frame high-water mark 16, compression off,
-512 pending finals and listen backlog 4096. They match the retained controlled
-comparison, without claiming optimal hidden performance. The Hub's existing
+The recorded public campaign used a 4096-byte write limit, inbound frame high-water mark 16, compression off,
+512 pending finals and listen backlog 4096. These match the retained controlled
+comparison. The later H3/H8 fix uses 1024-byte writes and deflate; its separate
+evidence and limitations are in docs/congestion-recovery.md. The Hub's existing
 one-second probe interval remains unchanged. Startup tries to raise the descriptor
 soft limit to the existing hard limit. Environment settings are validated.
 

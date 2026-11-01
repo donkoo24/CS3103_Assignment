@@ -1,9 +1,11 @@
 # Bounded delivery configuration
 
-Defaults: semantic delivery, 4096-byte write limit, inbound WebSocket frame high-water mark 16, compression
-off, 512 pending finals, backlog 4096. These match the retained controlled T3
-comparison; they are not claimed optimal for every hidden workload. Startup tries
-to raise the file-descriptor soft limit to the existing hard limit.
+Defaults: semantic delivery, 1024-byte write limit, inbound WebSocket frame
+high-water mark 16, deflate compression, 512 pending finals and backlog 4096.
+Startup tries to raise the descriptor soft limit to the existing hard limit.
+The older public campaign used 4096-byte writes and compression off; those
+results retain their original revision and settings. See
+[congestion recovery](congestion-recovery.md) for the H3/H8 follow-up.
 
 `LR_MAX_QUEUE` counts incoming WebSocket frames in the library and is a
 flow-control high-water mark, not the outgoing caption backlog.

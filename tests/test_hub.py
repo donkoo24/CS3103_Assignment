@@ -250,6 +250,7 @@ def test_lagged_reader_reserves_capacity_for_finals_then_resumes_revisions():
     async def main():
         hub, ws = Hub(FAST), FakeWS()
         session = hub.register(ws, 1)
+        session._window = 1
         session._degraded_until = asyncio.get_running_loop().time() + 0.2
         session._batch_gap = 0.02
         hub.publish(Cap(1, 1, True))
@@ -262,6 +263,7 @@ def test_lagged_reader_reserves_capacity_for_finals_then_resumes_revisions():
         assert keys(ws.sent) == [(1, 1), (3, 1)]
         await settle(0.15)
         assert keys(ws.sent)[-1] == (2, 2)
+        assert session._window == hub.config.window
         hub.unregister(session)
         await settle()
 
@@ -307,5 +309,23 @@ def test_packet_coalescing_flushes_before_wait_and_on_exception():
         except RuntimeError:
             pass
         assert sock.setsockopt.call_args.args[-1] == 0
+
+    asyncio.run(main())
+
+
+def test_reader_pacing_survives_a_shorter_pong_during_the_same_hold():
+    async def main():
+        hub, ws = Hub(), FakeWS()
+        session = hub.register(ws, 1)
+        session.min_rtt = 0.05
+        session._probe_lagged = True
+        for latency in (10.0, 1.1):
+            session._probe_sent = asyncio.get_running_loop().time() - latency
+            pong = asyncio.get_running_loop().create_future()
+            pong.set_result(latency)
+            session._on_pong(pong)
+            assert session._batch_gap == hub.config.reader_batch_gap
+        hub.unregister(session)
+        await settle()
 
     asyncio.run(main())
