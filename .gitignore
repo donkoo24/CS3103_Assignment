@@ -1,6 +1,8 @@
 *.csv
-.venv/
-venv/
+.venv*/
+venv*/
+bonus_asr/.venv-asr/
+bonus_asr/model/
 *.json
 __pycache__/
 *_run*.csv

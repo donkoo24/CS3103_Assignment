@@ -79,3 +79,13 @@ report and AI usage; agree the contribution percentages; record the compulsory
 A file-presence check does not certify these human deliverables. No final tag is set.
 Create a submission archive with `git archive --format=zip HEAD -o ../LiveRecall.zip`
 only after team review. TEAM_TASKS.md is local planning material and is not tracked.
+
+## Optional Bonus: Real-Lecture ASR Integration
+
+To run the real-time lecture video transcription demo (Section 17):
+
+```sh
+./bonus_asr/run_bonus_demo.sh
+```
+
+See `bonus_asr/README.md` for architectural design, setup details, and limitations analysis.
