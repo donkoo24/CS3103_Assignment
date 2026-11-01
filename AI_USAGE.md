@@ -39,3 +39,9 @@ experiments. I rejected applying a small frame window to every client and
 changing TCP_NODELAY globally after the diagnostic runs got worse. The final
 results include the remaining freshness limits and missing finals rather than
 claiming the instructor's hidden tests passed.
+
+I also used Codex to investigate the last missing finals and test further
+changes. Several changes to reader pacing and source completion did not help
+consistently, so I left them out. I kept a small bounded final-flush change
+after H3 reached 100% in all three repeats. H8 still missed some finals, and
+I retained those results and the worst run in the write-up.

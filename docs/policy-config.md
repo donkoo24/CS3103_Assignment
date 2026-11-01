@@ -25,3 +25,8 @@ This PR extends Damian's Hub and Don's server wiring, both now merged on
 `websockets.serve()` path.
 The extra probe-interval knob and unsupported “best configuration” claims were
 removed; the Hub's existing 1-second default remains unchanged.
+
+After 0.5 seconds without a source offer, the writer can flush one pending
+final batch beyond its ordinary acknowledgement window. The reserve cannot
+be used repeatedly without acknowledged progress. This is independent of the
+mailbox's pending-final cap and does not increase it.

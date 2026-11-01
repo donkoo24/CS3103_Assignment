@@ -31,7 +31,7 @@ still accept writes. Catch-up can batch pending finals into one HISTORY frame.
 
 The recorded public campaign used a 4096-byte write limit, inbound frame high-water mark 16, compression off,
 512 pending finals and listen backlog 4096. These match the retained controlled
-comparison. The later H3/H8 fix uses 1024-byte writes and deflate; its separate
+comparison. The later H3/H8 fix uses 1024-byte writes, deflate and a bounded idle final flush; its separate
 evidence and limitations are in docs/congestion-recovery.md. The Hub's existing
 one-second probe interval remains unchanged. Startup tries to raise the descriptor
 soft limit to the existing hard limit. Environment settings are validated.

@@ -1,5 +1,8 @@
 # Congestion and combined-impairment recovery
 
+The final-flush follow-up below achieved 100% completeness in three H3
+1 Mbit/s repeats; H8 remains imperfect.
+
 The team-plan H3 and H8 profiles exposed delivery limits. These are local
 stress scenarios, not the instructor's undisclosed hidden tests. Source,
 load-client and analyser measurement logic were not changed.
@@ -34,7 +37,7 @@ is the baseline campaign and the final three-run validation. Several settings
 changed together, so the comparison measures the combined change, not an isolated
 contribution from any single setting.
 
-## Three-run validation
+## Initial three-run validation (d38cd28)
 
 `experiments/congestion-recovery/` preserves per-run JSON, compressed CSV/logs,
 network settings, Git revisions, and uncompressed-file SHA256 hashes. The original
@@ -114,3 +117,39 @@ all 20,520 expected revisions. T2 P95 was 9.91 ms; T3 normal-reader P95 was
 are regression checks, not replacement three-run public report medians.
 The Python suite and browser suite passed, and the submission startup check
 passed. Protected instructor source/test files were unchanged.
+
+## Final-flush follow-up (f40770e)
+
+A final batch could wait behind a late pong after the source stopped offering
+updates. The writer also had no timer to revisit that condition. Record the
+last offer time and wake after 0.5 seconds of source silence. Permit one final
+batch beyond the usual acknowledgement window; further batches must wait for
+acknowledged progress. Ordinary reader pacing and normal revision delivery stay
+in place. This adds at most one reserved batch to the existing frame window.
+It does not depend on SOURCE_DONE, source disconnection, client count or test duration.
+
+Three independent server restarts of the unchanged workloads produced:
+
+| Profile | Run 1 final deliveries | Run 2 final deliveries | Run 3 final deliveries |
+|---|---:|---:|---:|
+| H3, 1 Mbit/s | 14,700/14,700 | 14,700/14,700 | 14,700/14,700 |
+| H8 | 22,774/22,800 | 22,707/22,800 | 22,776/22,800 |
+
+All six runs had zero duplicate, stale, invalid-history and connection-error
+events. H3 fresh finals were 58.54% median: 100% completeness does not establish
+100% freshness. H8 completeness was 99.89% median, with a 99.59% worst run.
+Its spread was wider than the initial validation, whose worst run was 99.79%;
+the random loss patterns differ, so these small changes do not establish a
+consistent H8 improvement. Perfect H8 completeness was not achieved.
+
+The committed `final-flush/` evidence contains every run, metadata, compressed
+traces/logs and hashes. Separate single-run T2, T3, T5 and 2 Mbit/s H3 regressions
+all retained 100% final completeness with zero recorded correctness errors.
+T2 retained every revision; all normal readers received every revision in T3.
+The Python suite passed 257 tests, including bounded flush and timer wake tests.
+
+Additional diagnostic changes to reader holds, batching schedules and source
+completion handling did not reliably eliminate H8 misses. They were discarded;
+the production change is the small bounded flush. The instructor source,
+clients, analyser, network parameters, run counts and test deadlines were unchanged.
+These local results are not a guarantee for the instructor's undisclosed workload.

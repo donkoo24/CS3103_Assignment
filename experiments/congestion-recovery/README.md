@@ -9,3 +9,8 @@ contains three independent restarts of each profile at Git revision d38cd28.
 losslessly compressed. `raw-sha256.txt` hashes their original uncompressed bytes.
 The instructor source, clients and analyser were not modified. These workloads
 are team-plan hidden-like scenarios, not the private instructor evaluator.
+
+`final-flush/` records the follow-up at f40770e: three runs each of H3 at
+1 Mbit/s and H8, plus single-run regressions. H3 reached exactly 100% in all
+three runs; H8 did not. The earlier `before/` and `after/` evidence remains
+intact so the two validation stages can be distinguished.
