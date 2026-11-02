@@ -111,7 +111,6 @@ python -m http.server 8000 --directory client
 # Terminal 3: deterministic source (long mode, so 60 s recall is meaningful)
 python caption_source.py --duration 120
 ```
-
 Open `http://127.0.0.1:8000` in **two browser windows side by side**. Use separate windows rather than tabs: browsers pause painting in background tabs.
 
 1. **Revision replacement.** Watch a segment labelled `[PROVISIONAL] … Updating…` (grey italics) grow in place and turn into `[FINAL]` on the same row. No duplicate line appears.
@@ -141,9 +140,11 @@ Open `http://127.0.0.1:8000` in **two browser windows side by side**. Use separa
   - **Trade-off:** batching improves completeness while reducing intermediate revisions; recovered finals can be older than 500 ms. Combined H8 impairment still missed some finals before the deadline.
   - See `report.pdf` for the measurements.
 
-## Optional ASR bonus
+## Optional Bonus: Real-Lecture ASR Integration
 
-Not attempted. `bonus_asr/` contains only the instructor's placeholder README.
+To run the real-time lecture video transcription demo (Section 17):
 
-The browser offline-state fix is tracked separately in PR #27; verify the
-DevTools offline/recovery demo with that change applied.
+```sh
+./bonus_asr/run_bonus_demo.sh
+```
+See `bonus_asr/README.md` for architectural design, setup details, and limitations analysis.
