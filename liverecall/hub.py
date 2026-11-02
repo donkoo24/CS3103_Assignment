@@ -5,36 +5,18 @@ caption into every client's :class:`Mailbox` and wakes that client's writer
 task. Each client has exactly one writer task, so a slow or stalled socket only
 ever delays its own writer (slow-client isolation).
 
-Lag detection. Transport backpressure alone cannot see a slow *reader*: its
-kernel receive buffer and its WebSocket library queue (16 frames in the
-``websockets`` client) absorb the backlog long before our send buffer fills.
-Each writer therefore keeps one WebSocket ping in flight as a probe. The peer
-reads the ping only after every frame queued in front of it, so a pong also
-acknowledges every frame before it, and an overdue pong means "this client is
-behind" (a *strike*). Policy per client:
+Lag detection uses returned pings as transport progress markers. Healthy
+clients receive every revision. A delayed probe switches that connection to
+one unacknowledged frame, holds provisional traffic, and batches pending finals.
+A large delay relative to the best observed RTT enables conservative reader
+pacing, retained through the recovery hold. This is a heuristic, not an
+application acknowledgement: a peer library may still buffer unread messages.
 
-* stuck (probe overdue, or ``window`` frames sent but not yet acknowledged):
-  send nothing; anything sent now would only queue behind the backlog, so
-  finals accumulate and provisionals coalesce. The window bounds a slow
-  reader's backlog regardless of how fast the source bursts;
-* caught up to the probe: flush every held final as ONE ``HISTORY`` frame
-  (finalized captions the client is missing, oldest first) - one read for the
-  client instead of one per final;
-* degraded (a hold of ``hold_factor`` x the time it was stuck, doubled per
-  repeated strike): provisionals at most one frame per ``degraded_gap``.
-  Finals go out one per frame - unless the client reads slower than finals
-  are produced. A saturated reader answers the probe only after draining its
-  library queue (16 -> 4 frames for ``websockets``), so its time per read is
-  about ``stuck / client_queue_band``. If that is too slow for the measured
-  finals rate, its finals are batched, one frame per 1.5 read times, so it
-  catches up and stays complete instead of falling further behind;
-* otherwise: every revision, immediately.
+The lag threshold is capped so congestion at connection startup cannot become
+an unlimited baseline. Small transport buffers and negotiated compression reduce
+shared bandwidth pressure. On Linux, a message and its immediate ping share one
+brief TCP_CORK scope, flushed at the next event-loop yield or on scope exit.
 
-Bandwidth. Per connection we cap the asyncio write buffer (``write_limit``)
-and, on Linux/macOS, the kernel's not-yet-sent bytes (``TCP_NOTSENT_LOWAT``).
-When the network is the bottleneck, ``send()`` therefore blocks early and the
-backlog builds up in the mailbox, where obsolete provisionals are coalesced,
-instead of as stale frames inside buffers we cannot edit.
 """
 
 from __future__ import annotations
@@ -68,18 +50,18 @@ class Publishable(Protocol):
 class DeliveryConfig:
     delivery: str = "semantic"
     finals_cap: int = 512  # pending finals per client before forcing a resync
-    write_limit: int = 4096  # asyncio write-buffer high-water mark (bytes)
-    notsent_lowat: int = 16384  # kernel unsent-bytes limit (bytes), 0 = off
+    write_limit: int = 1024  # asyncio write-buffer high-water mark (bytes)
+    notsent_lowat: int = 1024  # kernel unsent-bytes limit (bytes), 0 = off
     probe_interval: float = 1.0  # probe at least this often (s) ...
     window: int = 32  # ... and every window/2 frames; max unacknowledged frames
-    lag_min: float = 1.0  # probe overdue threshold floor (s); else 3 x min RTT
-    degraded_gap: float = 1.0  # min seconds between frames for provisionals
+    lag_min: float = 1.0
+    lag_max: float = 1.0  # cap when the connection starts congested
     hold_factor: float = 10.0  # degraded hold = hold_factor x time stuck ...
     hold_min: float = 2.0  # ... clamped to [hold_min, hold_max] ...
     hold_max: float = 120.0  # ... and doubled for every repeated strike
     strike_decay: float = 60.0  # lag-free seconds that forgive one strike
-    client_queue_band: int = 12  # frames a saturated client reads before a pong
-    batch_gap_max: float = 8.0  # cap on the slow-reader finals batch gap
+    reader_batch_gap: float = 1.5  # seconds between degraded reader batches
+    idle_flush_delay: float = 0.5  # bounded wait for finals after source silence
 
 
 class Session:
@@ -98,6 +80,7 @@ class Session:
         self.cfg = hub.config
         self.mailbox = (FifoMailbox(self.cfg.finals_cap) if self.cfg.delivery == "fifo"
                         else Mailbox(self.cfg.finals_cap))
+        self._window = self.cfg.window
         self.sent = 0  # frames sent (one WebSocket message each)
         self._acked = 0  # frames acknowledged by a returned probe
         self._probe_frame = 0  # self.sent when the outstanding probe was sent
@@ -106,6 +89,7 @@ class Session:
         self._loop = asyncio.get_running_loop()
         self._wake = asyncio.Event()
         self._last_send = -math.inf
+        self._last_offer = -math.inf
         self._probe: asyncio.Future[float] | None = None
         self._probe_sent = -math.inf
         self._probe_lagged = False
@@ -120,6 +104,7 @@ class Session:
 
     # Called synchronously by Hub.publish().
     def offer(self, caption: Publishable) -> None:
+        self._last_offer = self._loop.time()
         accepted = self.mailbox.push(caption.segment, caption.final, caption.wire)
         action = on_backlog({"overflowed": not accepted, "pending": len(self.mailbox)},
                             self.cfg.finals_cap)
@@ -151,11 +136,12 @@ class Session:
                     except asyncio.TimeoutError:  # noqa: UP041 - distinct on 3.10
                         pass
                     continue
-                await self.ws.send(msg)
-                self.sent += 1
-                self._last_send = self._loop.time()
-                if self.cfg.delivery != "fifo":
-                    await self._maybe_probe()
+                with _coalesce_writes(self.ws):
+                    await self.ws.send(msg)
+                    self.sent += 1
+                    self._last_send = self._loop.time()
+                    if self.cfg.delivery != "fifo":
+                        await self._maybe_probe()
         except ConnectionClosed:
             pass
         except Exception:  # a delivery bug must not silently stall a client
@@ -173,27 +159,37 @@ class Session:
         if not len(mb):
             return None
         now = self._loop.time()
-        if self._probe_overdue(now):  # stuck: hold everything until the pong
-            if not self._probe_lagged:
-                self._probe_lagged = True
-                self._strike(now)
+        idle_at = self._last_offer + self.cfg.idle_flush_delay
+        overdue = self._probe_overdue(now)
+        if overdue and not self._probe_lagged:
+            self._probe_lagged = True
+            self._strike(now)
+        # A quiet source cannot supersede its durable finals. Allow one extra
+        # final batch beyond the usual window, never an unbounded bypass.
+        if mb.has_final and now >= idle_at and self.sent - self._acked < self._window + 1:
+            self._catchup = False
+            return self._batch_finals()
+        if overdue or (self._probe is not None and self.sent - self._acked >= self._window):
+            if mb.has_final and idle_at > now:
+                self._retry_at = idle_at
             return None
-        if self._probe is not None and self.sent - self._acked >= self.cfg.window:
-            return None  # window full: wait for the pong (not a strike by itself)
         degraded = now < self._degraded_until
+        if not degraded:
+            self._window = self.cfg.window
         if mb.has_final:
-            if self._catchup or (degraded and self._batch_gap):
+            if self._catchup or degraded:
                 ready_at = self._last_send + (0.0 if self._catchup else self._batch_gap)
                 if now < ready_at:
-                    self._retry_at = ready_at
+                    self._retry_at = min(ready_at, idle_at) if idle_at > now else ready_at
                     return None
                 self._catchup = False
                 return self._batch_finals()
             return mb.pop_final()
         self._catchup = False
-        ready_at = self._last_send + self.cfg.degraded_gap if degraded else now
-        if now < ready_at:
-            self._retry_at = ready_at
+        if degraded:
+            # Spend the measured slow reader capacity on durable finals.
+            # New provisionals still coalesce and resume after recovery.
+            self._retry_at = self._degraded_until
             return None
         return mb.pop_provisional()
 
@@ -206,7 +202,7 @@ class Session:
     def _lag_threshold(self) -> float:
         if math.isinf(self.min_rtt):
             return self.cfg.lag_min
-        return max(self.cfg.lag_min, 3.0 * self.min_rtt)
+        return min(self.cfg.lag_max, max(self.cfg.lag_min, 3.0 * self.min_rtt))
 
     def _probe_overdue(self, now: float) -> bool:
         return (
@@ -221,6 +217,7 @@ class Session:
             self._strikes = max(0, self._strikes - forgiven)
         self._strikes += 1
         self._last_strike = now
+        self._window = min(self._window, 1)
         self.lag_events += 1
         self.hub.lag_events += 1
 
@@ -229,7 +226,7 @@ class Session:
             return
         now = self._loop.time()
         due = now - self._probe_sent >= self.cfg.probe_interval
-        if due or self.sent - self._acked >= self.cfg.window // 2:
+        if due or self.sent - self._acked >= self._window // 2:
             self._probe_sent = now
             self._probe_frame = self.sent
             self._probe_lagged = False
@@ -254,11 +251,11 @@ class Session:
             self._catchup = True
             stuck = self._loop.time() - self._probe_sent
             cfg = self.cfg
-            read_time = stuck / cfg.client_queue_band
-            too_slow = read_time * self.hub.finals_rate >= 1.0
-            self._batch_gap = (
-                min(cfg.batch_gap_max, 1.5 * read_time) if too_slow else 0.0
-            )
+            previous_gap = self._batch_gap if self._loop.time() < self._degraded_until else 0.0
+            # A network RTT is not an application read interval. Only infer
+            # reader pacing from a large delay above the best observed RTT.
+            reader_lag = latency > max(2.0, 8.0 * self.min_rtt)
+            self._batch_gap = max(previous_gap, cfg.reader_batch_gap if reader_lag else 0.0)
             hold = min(cfg.hold_max, max(cfg.hold_min, cfg.hold_factor * stuck))
             hold = min(cfg.hold_max, hold * 2 ** (self._strikes - 1))
             self._degraded_until = self._loop.time() + hold
@@ -349,3 +346,31 @@ def _limit_buffers(ws: Any, cfg: DeliveryConfig) -> None:
 async def _close_quietly(ws: Any, code: int, reason: str) -> None:
     with contextlib.suppress(Exception):  # already closing: nothing to recover
         await ws.close(code, reason)
+
+
+@contextlib.contextmanager
+def _coalesce_writes(ws):
+    """Flush a caption and its immediate probe together, never across a yield."""
+    transport = getattr(ws, "transport", None)
+    sock = transport.get_extra_info("socket") if transport is not None else None
+    option = getattr(socket, "TCP_CORK", None)
+    enabled = False
+    if sock is not None and option is not None:
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, option, 1)
+            enabled = True
+        except OSError:
+            pass
+
+    def flush():
+        if enabled:
+            with contextlib.suppress(OSError):
+                sock.setsockopt(socket.IPPROTO_TCP, option, 0)
+
+    handle = asyncio.get_running_loop().call_soon(flush) if enabled else None
+    try:
+        yield
+    finally:
+        if handle is not None:
+            handle.cancel()
+        flush()

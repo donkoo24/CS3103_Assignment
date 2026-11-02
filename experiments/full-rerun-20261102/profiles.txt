@@ -1,0 +1,18 @@
+Profiles executed sequentially with three independent restarts each.
+See each directory for the effective qdisc and settings.
+
+run_case t1 none public --clients 20 --duration 20
+run_case t2 none public --clients 100 --duration 40
+run_case t3 none public --clients 100 --duration 60 --slow-percent 10 --slow-ms 500
+run_case t4 none public --clients 100 --duration 60 --disconnect-percent 20 --disconnect-at 15 --disconnect-seconds 5
+run_case t5 publicloss public --clients 100 --duration 40
+run_case h1_500 none public --clients 500 --duration 40
+run_case h1_1000 none public --clients 1000 --duration 40
+run_case h2 none public --clients 300 --duration 60 --slow-percent 30 --slow-ms 1000
+run_case h3_2mbit bandwidth2 public --clients 300 --duration 40
+run_case h3_1mbit bandwidth1 public --clients 300 --duration 40
+run_case h4 delayloss public --clients 200 --duration 40
+run_case h5 none public --clients 300 --duration 60 --disconnect-percent 50 --disconnect-at 15 --disconnect-seconds 10
+run_case h6 none public --clients 200 --duration 60 --late-percent 30 --late-seconds 15
+run_case h7 none burst --clients 200 --duration 40 --revision-delay 0.02 --segment-gap 0.05 --slow-percent 10
+run_case h8 delayloss public --clients 300 --duration 60 --slow-percent 30 --slow-ms 1000 --disconnect-percent 50 --disconnect-at 15 --disconnect-seconds 10

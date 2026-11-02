@@ -86,11 +86,16 @@ Running T5 inside `unshare` applies real `tc/netem` shaping in a private network
 Before/after comparison (T3; only the delivery policy changes):
 
 ```bash
-LR_DELIVERY=fifo     LR_OUTPUT=experiments/before-t3 bash scripts/stress.sh t3
-LR_DELIVERY=semantic LR_OUTPUT=experiments/after-t3  bash scripts/stress.sh t3
+LR_WRITE_LIMIT=4096 LR_COMPRESSION=none LR_DELIVERY=fifo LR_OUTPUT=experiments/before-t3 bash scripts/stress.sh t3
+LR_WRITE_LIMIT=4096 LR_COMPRESSION=none LR_DELIVERY=semantic LR_OUTPUT=experiments/after-t3  bash scripts/stress.sh t3
 ```
 
-The submitted results, logs and per-run JSON are in `experiments/public/`.
+The historical public campaign is in `experiments/public/`. Current congestion
+settings and limitations are in `docs/congestion-recovery.md`. The full T1–T5
+and team-plan H1–H8 rerun is summarized in `experiments/full-rerun-20261102/`.
+It delivered all finals in every run except H8; H8 remains imperfect.
+The recorded FIFO comparison uses its original revision, 4096-byte writes and
+compression off. Current defaults use 1024-byte writes and deflate.
 
 ## Mandatory deterministic application demo
 
@@ -126,13 +131,13 @@ Open `http://127.0.0.1:8000` in **two browser windows side by side**. Use separa
 - **Per-client buffering/backpressure policy.**
   - `Hub.publish()` is synchronous: it only places the pre-encoded caption in each client's mailbox (`liverecall/mailbox.py`). Each client has its own writer task, so a slow client delays only itself.
   - The mailbox keeps finals in order and never drops them. Each unfinished segment has a single provisional slot, which a newer revision overwrites.
-  - TCP backpressure cannot detect a slow reader: its backlog sits in the client's own buffers. The writer therefore uses WebSocket ping/pong as an acknowledgement. At most 32 frames may be unconfirmed, and a late pong marks the client as behind.
+  - TCP backpressure cannot detect a slow reader: its backlog sits in the client's own buffers. The writer therefore uses WebSocket ping/pong as an acknowledgement. Healthy clients use a 32-frame window; detected lag reduces it to one. A bounded final flush after source silence can use one extra batch until acknowledged progress.
 - **Overload behavior and trade-offs.**
-  - A lagging client stops receiving until it catches up. It then gets all held finals in one `HISTORY` frame, and for a while receives at most one provisional per second.
+  - A lagging client holds provisionals while pending finals coalesce into batches. Normal revision delivery resumes after the recovery hold.
   - A client slower than the finals rate gets its finals batched.
-  - Per-socket send buffers are kept small (4 KiB asyncio, 16 KiB `TCP_NOTSENT_LOWAT`), so under constrained bandwidth the backlog stays in the mailbox, where it can still be coalesced.
+  - Per-socket send buffers are kept small (1 KiB asyncio and 1 KiB `TCP_NOTSENT_LOWAT` (a notification threshold rather than a hard byte cap)), so under constrained bandwidth the backlog stays in the mailbox, where it can still be coalesced.
   - A client that exceeds 512 pending finals or 1,024 pending updates is closed with 1013 and resumes through `HISTORY`.
-  - **Trade-off:** slow readers stay complete but receive fewer intermediate revisions, and recovered finals can be older than 500 ms.
+  - **Trade-off:** batching improves completeness while reducing intermediate revisions; recovered finals can be older than 500 ms. Combined H8 impairment still missed some finals before the deadline.
   - See `report.pdf` for the measurements.
 
 ## Optional Bonus: Real-Lecture ASR Integration
@@ -142,5 +147,4 @@ To run the real-time lecture video transcription demo (Section 17):
 ```sh
 ./bonus_asr/run_bonus_demo.sh
 ```
-
 See `bonus_asr/README.md` for architectural design, setup details, and limitations analysis.

@@ -8,7 +8,7 @@ import websockets
 from liverecall.hub import DeliveryConfig, Hub
 
 FAST = DeliveryConfig(
-    probe_interval=0.0, lag_min=0.05, degraded_gap=0.2, hold_min=0.3, hold_factor=0.0
+    probe_interval=0.0, lag_min=0.05, hold_min=0.3, hold_factor=0.0, reader_batch_gap=0.0
 )
 
 
@@ -111,13 +111,14 @@ def test_stuck_client_gets_held_finals_as_one_history_frame():
         assert keys(ws.sent) == [(1, 1)]  # stuck: nothing sent, all held
         assert session.degraded and hub.lag_events == 1
 
+        ws.answer_pings = True  # subsequent catch-up frames are acknowledged
         ws.pings[0].set_result(1.0)  # client has now read up to the probe
         await settle()
         catchup = ws.sent[1]
         assert catchup["type"] == "HISTORY"
         assert keys(catchup["items"]) == [(1, 3), (2, 3), (3, 3)]
         assert session.degraded and len(ws.sent) == 2  # provisional held back
-        await settle(FAST.degraded_gap + 0.15)
+        await settle(FAST.hold_min + 0.05)
         assert keys(ws.sent[2:]) == [(4, 1)]  # newest provisional released
 
     asyncio.run(main())
@@ -126,7 +127,7 @@ def test_stuck_client_gets_held_finals_as_one_history_frame():
 def test_reader_slower_than_finals_rate_gets_batched_finals():
     async def main():
         cfg = DeliveryConfig(
-            probe_interval=0.0, lag_min=0.05, client_queue_band=1, hold_min=5.0
+            probe_interval=0.0, lag_min=0.05, hold_min=5.0, reader_batch_gap=0.0
         )
         hub, ws = Hub(cfg), FakeWS(answer_pings=False)
         hub.register(ws, 1)
@@ -229,5 +230,142 @@ def test_real_sockets_stalled_reader_does_not_delay_normal_reader():
                 assert hub.lag_events >= 1  # the silent client was detected
                 stalled = next(s for s in hub.sessions if s.lag_events)
                 assert len(stalled.mailbox) <= 40  # bounded: finals + 1 slot
+
+    asyncio.run(main())
+
+
+def test_congested_initial_rtt_does_not_disable_lag_detection():
+    async def main():
+        hub, ws = Hub(), FakeWS()
+        session = hub.register(ws, 1)
+        session.min_rtt = 5.0
+        assert session._lag_threshold() <= hub.config.lag_max
+        hub.unregister(session)
+        await settle()
+
+    asyncio.run(main())
+
+
+def test_lagged_reader_reserves_capacity_for_finals_then_resumes_revisions():
+    async def main():
+        hub, ws = Hub(FAST), FakeWS()
+        session = hub.register(ws, 1)
+        session._window = 1
+        session._degraded_until = asyncio.get_running_loop().time() + 0.2
+        session._batch_gap = 0.02
+        hub.publish(Cap(1, 1, True))
+        hub.publish(Cap(2, 1, False))
+        await settle(0.08)
+        assert keys(ws.sent) == [(1, 1)]
+        hub.publish(Cap(2, 2, False))
+        hub.publish(Cap(3, 1, True))
+        await settle(0.05)
+        assert keys(ws.sent) == [(1, 1), (3, 1)]
+        await settle(0.15)
+        assert keys(ws.sent)[-1] == (2, 2)
+        assert session._window == hub.config.window
+        hub.unregister(session)
+        await settle()
+
+    asyncio.run(main())
+
+
+def test_lagged_reader_batches_even_when_recent_final_rate_is_low():
+    async def main():
+        hub, ws = Hub(DeliveryConfig(lag_min=0.05, probe_interval=0.0)), FakeWS(answer_pings=False)
+        session = hub.register(ws, 1)
+        hub._final_gap = 100.0
+        session.min_rtt = 0.001
+        hub.publish(Cap(1, 1, False))
+        await settle(0.1)
+        ws.pings[0].set_result(3.0)
+        await settle(0.01)
+        assert session._batch_gap > 0
+        hub.unregister(session)
+        await settle()
+
+    asyncio.run(main())
+
+
+def test_packet_coalescing_flushes_before_wait_and_on_exception():
+    import socket
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from liverecall.hub import _coalesce_writes
+
+    if not hasattr(socket, 'TCP_CORK'):
+        return
+
+    async def main():
+        sock = Mock()
+        ws = SimpleNamespace(transport=SimpleNamespace(get_extra_info=lambda _: sock))
+        with _coalesce_writes(ws):
+            assert sock.setsockopt.call_args.args[-1] == 1
+            await asyncio.sleep(0)
+            assert sock.setsockopt.call_args.args[-1] == 0
+        try:
+            with _coalesce_writes(ws):
+                raise RuntimeError('cancel send')
+        except RuntimeError:
+            pass
+        assert sock.setsockopt.call_args.args[-1] == 0
+
+    asyncio.run(main())
+
+
+def test_reader_pacing_survives_a_shorter_pong_during_the_same_hold():
+    async def main():
+        hub, ws = Hub(), FakeWS()
+        session = hub.register(ws, 1)
+        session.min_rtt = 0.05
+        session._probe_lagged = True
+        for latency in (10.0, 1.1):
+            session._probe_sent = asyncio.get_running_loop().time() - latency
+            pong = asyncio.get_running_loop().create_future()
+            pong.set_result(latency)
+            session._on_pong(pong)
+            assert session._batch_gap == hub.config.reader_batch_gap
+        hub.unregister(session)
+        await settle()
+
+    asyncio.run(main())
+
+
+def test_idle_final_batch_wakes_without_pong_but_cannot_repeat_the_bypass():
+    async def main():
+        cfg = DeliveryConfig(window=1, lag_min=60, idle_flush_delay=0.05)
+        hub, ws = Hub(cfg), FakeWS(answer_pings=False)
+        session = hub.register(ws, 1)
+        hub.publish(Cap(1, 1, False))
+        await settle(0.01)
+        hub.publish(Cap(1, 2, True))
+        hub.publish(Cap(2, 1, True))
+        await settle(0.08)
+        assert keys(ws.sent[1]['items']) == [(1, 2), (2, 1)]
+        assert session.sent - session._acked == cfg.window + 1
+        hub.publish(Cap(3, 1, True))
+        await settle(0.08)
+        assert len(ws.sent) == 2
+        ws.pings[0].set_result(0.001)
+        await settle(0.03)
+        assert keys(ws.sent[-1:]) == [(3, 1)]
+        hub.unregister(session)
+        await settle()
+
+    asyncio.run(main())
+
+
+def test_idle_final_batch_does_not_wait_for_the_reader_timer():
+    async def main():
+        hub, ws = Hub(DeliveryConfig(idle_flush_delay=0.05)), FakeWS()
+        session = hub.register(ws, 1)
+        session._degraded_until = asyncio.get_running_loop().time() + 10
+        session._batch_gap = 10
+        session._last_send = asyncio.get_running_loop().time()
+        hub.publish(Cap(1, 1, True))
+        await settle(0.08)
+        assert keys(ws.sent) == [(1, 1)]
+        hub.unregister(session)
+        await settle()
 
     asyncio.run(main())

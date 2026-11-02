@@ -1,4 +1,4 @@
-"""Validated runtime knobs. Defaults match the retained three-run T3 comparison."""
+"""Validated runtime knobs for bounded delivery under shared congestion."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from collections.abc import Mapping
 
 @dataclass(frozen=True)
 class Config:
-    write_limit: int = 4096
+    write_limit: int = 1024
     max_queue: int = 16
-    compression: str | None = None
+    compression: str | None = "deflate"
     finals_cap: int = 512
     delivery: str = "semantic"
     backlog: int = 4096
@@ -47,14 +47,14 @@ def load_from_env(env: Mapping[str, str] | None = None) -> Config:
             raise ValueError(f"{name} must be a positive integer")
         return value
 
-    compression = env.get("LR_COMPRESSION", "none")
+    compression = env.get("LR_COMPRESSION", "deflate")
     delivery = env.get("LR_DELIVERY", "semantic")
     if compression not in ("none", "deflate"):
         raise ValueError("LR_COMPRESSION must be none or deflate")
     if delivery not in ("semantic", "fifo"):
         raise ValueError("LR_DELIVERY must be semantic or fifo")
     return Config(
-        write_limit=positive("LR_WRITE_LIMIT", 4096),
+        write_limit=positive("LR_WRITE_LIMIT", 1024),
         max_queue=positive("LR_MAX_QUEUE", 16),
         finals_cap=positive("LR_FINALS_CAP", 512),
         compression=None if compression == "none" else compression,

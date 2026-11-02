@@ -1,5 +1,9 @@
 # Delivery & backpressure (report section draft: Damian)
 
+> Historical design and measurements. The later H3/H8 fix changes the lag
+> allowance, degraded window, pacing and transport defaults; see
+> [congestion recovery](../congestion-recovery.md).
+
 > Draft for `report.pdf`. Results are 3-run medians on the integrated server
 > (state + history + hub + wiring) on macOS; Leonard's Ubuntu runs
 > (`scripts/stress.sh`, #11) supersede them where they overlap.

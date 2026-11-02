@@ -41,3 +41,21 @@ Other corrections are recorded in `AI_USAGE_NOTES.md`. For example, Codex propos
 ## Responsibility statement
 
 We understand that the team remains responsible for the submitted code, experimental results, and claims, and that every member may be asked to explain or modify relevant code during the viva.
+
+## Leonard: congestion follow-up
+
+For the H3/H8 follow-up, I used Codex to inspect the saved client traces and
+Hub code, draft the recovery changes and regression tests, and run the Ubuntu
+experiments. I rejected applying a small frame window to every client and
+changing TCP_NODELAY globally after the diagnostic runs got worse. The final
+results include the remaining freshness limits and missing finals rather than
+claiming the instructor's hidden tests passed.
+
+I also used Codex to investigate the last missing finals and test further
+changes. Several changes to reader pacing and source completion did not help
+consistently, so I left them out. I kept a small bounded final-flush change
+after H3 reached 100% in all three repeats. H8 still missed some finals, and
+I retained those results and the worst run in the write-up.
+
+These changes involved substantial code and test assistance. I remain responsible
+for reviewing and understanding my contribution.
