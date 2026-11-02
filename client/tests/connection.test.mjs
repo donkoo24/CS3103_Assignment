@@ -233,3 +233,93 @@ test("online / visible events trigger an immediate reconnect", () => {
   t.conn.close();
   assert.deepEqual(Object.keys(listeners), []);
 });
+
+test("close ignores queued messages and late opens from the stopped socket", () => {
+  const t = setup();
+  const socket = t.last();
+  t.conn.close();
+  socket.open();
+  socket.receive({ type: "CAPTION_UPDATE", segment: 1, revision: 1 });
+  socket.receive({ type: "HISTORY", items: [] });
+  t.clock.advance(60000);
+  assert.deepEqual(socket.sent, []);
+  assert.deepEqual(t.messages, []);
+  assert.equal(t.statuses.at(-1).s, STATUS.CLOSED);
+  assert.equal(t.created.length, 1);
+});
+
+test("replaced socket cannot deliver messages or overwrite the new connection status", () => {
+  const t = setup();
+  const old = t.last();
+  old.open();
+  old.drop();
+  t.clock.advance(500);
+  const current = t.last();
+  current.open();
+  current.receive({ type: "HISTORY", items: [] });
+  const count = t.messages.length;
+  old.open();
+  old.receive({ type: "CAPTION_UPDATE", segment: 50, revision: 1 });
+  assert.equal(old.sent.length, 1);
+  assert.equal(t.messages.length, count);
+  assert.equal(t.statuses.at(-1).s, STATUS.CONNECTED);
+  current.receive({ type: "CAPTION_UPDATE", segment: 51, revision: 1 });
+  assert.equal(t.messages.at(-1).segment, 51);
+  t.conn.close();
+});
+
+function networkEnv(online) {
+  const listeners = {};
+  return {
+    listeners,
+    navigator: { onLine: online },
+    addEventListener: (name, fn) => { listeners[name] = fn; },
+    removeEventListener: (name) => { delete listeners[name]; },
+  };
+}
+
+test("offline closes the socket and resumes from finalized state when online", () => {
+  const env = networkEnv(true);
+  const t = setup({ env });
+  const old = t.last();
+  old.open();
+  t.setResume({ segment: 8, revision: 3 });
+  env.navigator.onLine = false;
+  env.listeners.offline();
+  old.receive({ type: "CAPTION_UPDATE", segment: 9, revision: 1 });
+  t.clock.advance(60000);
+  assert.deepEqual(t.messages, []);
+  assert.equal(old.closed.code, 1000);
+  assert.equal(t.statuses.at(-1).s, STATUS.OFFLINE);
+  assert.equal(t.created.length, 1);
+  env.navigator.onLine = true;
+  env.listeners.online();
+  t.last().open();
+  assert.equal(t.created.length, 2);
+  assert.equal(t.last().sent[0].last_segment, 8);
+  t.conn.close();
+  assert.equal(env.listeners.offline, undefined);
+});
+
+test("initial offline state waits for online without retry timers", () => {
+  const env = networkEnv(false);
+  const t = setup({ env });
+  t.clock.advance(60000);
+  assert.equal(t.created.length, 0);
+  assert.equal(t.statuses.at(-1).s, STATUS.OFFLINE);
+  env.navigator.onLine = true;
+  env.listeners.online();
+  assert.equal(t.created.length, 1);
+  t.conn.close();
+});
+
+test("an offline network flag rejects messages even before the offline event", () => {
+  const env = networkEnv(true);
+  const t = setup({ env });
+  t.last().open();
+  env.navigator.onLine = false;
+  t.last().receive({ type: "CAPTION_UPDATE", segment: 1, revision: 1 });
+  assert.deepEqual(t.messages, []);
+  assert.equal(t.statuses.at(-1).s, STATUS.OFFLINE);
+  t.conn.close();
+});

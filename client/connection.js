@@ -24,6 +24,7 @@
     CONNECTING: "connecting",
     CONNECTED: "connected",
     RECONNECTING: "reconnecting",
+    OFFLINE: "offline",
     CLOSED: "closed", // close() was called; no further reconnects
   });
 
@@ -75,9 +76,28 @@
       watchdogTimer = opts.setTimeout(onExpire, ms);
     }
 
+    function isOffline() {
+      return opts.env?.navigator?.onLine === false;
+    }
+
+    function suspendOffline() {
+      if (stopped) return;
+      opts.clearTimeout(retryTimer);
+      opts.clearTimeout(watchdogTimer);
+      retryTimer = null;
+      watchdogTimer = null;
+      const socket = ws;
+      ws = null;
+      if (socket) {
+        try { socket.close(1000, "browser offline"); } catch (_) { /* Already closed. */ }
+      }
+      report(STATUS.OFFLINE);
+    }
+
     function open() {
       retryTimer = null;
       if (stopped) return;
+      if (isOffline()) { suspendOffline(); return; }
       report(STATUS.CONNECTING);
       let socket;
       try {
@@ -104,6 +124,8 @@
       armWatchdog(opts.connectTimeoutMs, fail);
 
       socket.onopen = () => {
+        if (stopped || ws !== socket) return;
+        if (isOffline()) { suspendOffline(); return; }
         const state = opts.getResumeState() || {};
         socket.send(
           JSON.stringify({
@@ -120,6 +142,8 @@
       };
 
       socket.onmessage = (event) => {
+        if (stopped || ws !== socket) return;
+        if (isOffline()) { suspendOffline(); return; }
         let msg;
         try {
           msg = JSON.parse(event.data);
@@ -138,6 +162,7 @@
 
     function scheduleReconnect() {
       if (stopped || retryTimer !== null) return;
+      if (isOffline()) { suspendOffline(); return; }
       const delay = backoffMs();
       attempt += 1;
       report(STATUS.RECONNECTING, { inMs: delay });
@@ -161,6 +186,7 @@
 
     if (opts.env) {
       opts.env.addEventListener("online", reconnectNow);
+      opts.env.addEventListener("offline", suspendOffline);
       if (opts.env.document) {
         opts.env.document.addEventListener("visibilitychange", onVisibility);
       }
@@ -176,6 +202,7 @@
         opts.clearTimeout(watchdogTimer);
         if (opts.env) {
           opts.env.removeEventListener("online", reconnectNow);
+          opts.env.removeEventListener("offline", suspendOffline);
           if (opts.env.document) {
             opts.env.document.removeEventListener("visibilitychange", onVisibility);
           }
