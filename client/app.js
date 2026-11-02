@@ -32,7 +32,7 @@
 
     function updateStatus() {
       const online = options.isOnline ? options.isOnline() : (!root.navigator || root.navigator.onLine !== false);
-      status.textContent = !online ? "Offline" : state === "connected" ? "Connected" : state === "closed" ? "Offline" : "Reconnecting";
+      status.textContent = !online ? "Offline" : state === "connected" ? "Connected" : (state === "closed" || state === "offline") ? "Offline" : "Reconnecting";
       status.dataset.state = online ? state : "closed";
       age.textContent = lastUpdate === null ? "Waiting for captions" : `Last update ${Math.max(0, Math.floor((now() - lastUpdate) / 1000))} s ago`;
     }

@@ -28,3 +28,9 @@ position while following is paused, and provides a Return to live button.
 Manual integrated checks: two tabs; revision replacement; 15/30/60 recall;
 late join; source text containing HTML; disconnect/reconnect recovery; scroll up
 during bursts; 300-row limit; mobile view; keyboard focus; storage disabled.
+
+The browser's offline state suspends the WebSocket connection instead of only
+changing its badge. New socket messages are ignored while offline; locally
+stored captions remain available for recall. Going online reconnects with the
+last finalized cursor. Explicitly closed and superseded sockets cannot deliver
+late messages or overwrite the connection status.

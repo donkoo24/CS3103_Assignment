@@ -32,3 +32,8 @@ record; this document does not infer unrecorded usage for teammates. Pending
 merge of this integration PR, the demo video and the contribution
 agreement are not claimed complete. AI assistance does not replace team
 review or individual understanding.
+
+I used Codex to investigate why the browser could show Offline while captions
+continued arriving. It helped add offline socket shutdown and guards against
+late events from closed or replaced sockets, with tests for offline/online
+recovery and resuming from the last finalized caption.
