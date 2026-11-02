@@ -5,7 +5,7 @@
 - Damian Liew Cho Xiang / A0302976X / hub and per-client writer tasks, semantic mailbox, slow-reader lag detection and overload policy, browser connection/reconnect
 - Dylan Tang Zhi Yew / A0307803J / bounded final history, resume and late-join handshake, HISTORY cache, browser recall history
 - Don Koo / A0307817Y / protocol parsing, revision state, server wiring, browser caption store
-- Leonard / A0307813H / runtime configuration and overflow policy, startup scaling, FIFO baseline, browser shell/UI, Ubuntu test tooling
+- Leonard Lim Jia Hui / A0307813H / runtime configuration and overflow policy, startup scaling, FIFO baseline, browser shell/UI, Ubuntu test tooling
 
 ## Ubuntu setup
 
