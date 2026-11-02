@@ -1,4 +1,4 @@
-# Team XX - LiveRecall
+# Team 11 - LiveRecall
 
 ## Team members
 
