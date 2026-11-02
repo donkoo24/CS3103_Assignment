@@ -41,8 +41,3 @@ Other corrections are recorded in `AI_USAGE_NOTES.md`. For example, Codex propos
 ## Responsibility statement
 
 We understand that the team remains responsible for the submitted code, experimental results, and claims, and that every member may be asked to explain or modify relevant code during the viva.
-
-Leonard (browser offline fix): I used Codex to investigate why the browser
-could show Offline while captions continued arriving. It helped add offline
-socket shutdown, guards against late events from closed or replaced sockets,
-and tests for reconnecting from the last finalized caption.
