@@ -8,6 +8,9 @@ vosk>=0.3.45
 # Standalone ffmpeg binary for streaming MP4/video audio without root/sudo
 imageio-ffmpeg>=0.5.0
 
+# WebSocket client for streaming caption updates to solution_server.py
+websockets>=13,<17
+
 # Option B: faster-whisper (CTranslate2 Whisper engine)
 # faster-whisper>=1.0.0
 
