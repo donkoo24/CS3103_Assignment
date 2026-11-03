@@ -92,7 +92,7 @@ LR_WRITE_LIMIT=4096 LR_COMPRESSION=none LR_DELIVERY=semantic LR_OUTPUT=experimen
 
 The historical public campaign is in `experiments/public/`. Current congestion
 settings and limitations are in `docs/congestion-recovery.md`. The full T1–T5
-and team-plan H1–H8 rerun is summarized in `experiments/full-rerun-20261102/`.
+and team-plan H1–H8 rerun is summarized in `experiments/20261102/`.
 It delivered all finals in every run except H8; H8 remains imperfect.
 The recorded FIFO comparison uses its original revision, 4096-byte writes and
 compression off. Current defaults use 1024-byte writes and deflate.
