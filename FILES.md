@@ -10,5 +10,5 @@
 - `network_profiles/` - public `tc/netem` examples.
 - `START_HERE.md`, `DEMO_GUIDE.md`, `PUBLIC_TESTS.md`, `PROTOCOL_EXAMPLES.md`, `NETWORKING_PRIMER.md`, `UBUNTU_SETUP.md` - student guides.
 - `submission_check.py` - startup/WebSocket compatibility checker; `--final` checks final deliverables.
-- `README_TEMPLATE.md`, `AI_USAGE_TEMPLATE.md`, `CONTRIBUTIONS_TEMPLATE.md` - submission templates.
+- `README_TEMPLATE.md` - submission template.
 - `bonus_asr/` - optional-only bonus guidance.

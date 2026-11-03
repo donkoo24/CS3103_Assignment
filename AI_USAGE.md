@@ -9,7 +9,7 @@
 | Damian | Claude Code | Drafting the semantic mailbox, the hub and its ping-based lag detector, the browser connection manager, and their tests. Also used to analyse the slow-reader measurements behind the overload policy. |
 | Leonard | OpenAI Codex | Runtime configuration and overflow policy, the browser shell, the Ubuntu T1–T5 wrapper, the before/after comparison, and preparing experiment evidence and figures. |
 
-Every AI-generated change was reviewed by its author, covered by tests, and merged through a pull request reviewed by another member. Raw per-PR records are in `AI_USAGE_NOTES.md`.
+Every AI-generated change was reviewed by its author, covered by tests, and merged through a pull request reviewed by another member.
 
 ## One useful suggestion
 
@@ -36,7 +36,7 @@ if STATE.apply(cap):
     HUB.publish(cap)  # synchronous; never awaits a socket
 ```
 
-Other corrections are recorded in `AI_USAGE_NOTES.md`. For example, Codex proposed rewriting `app.js` and `history.js` as IIFE scripts; this was rejected to keep them as ES modules like the rest of the client. An AI-written `inf // 30` produced `nan` and crashed a writer task, and time-only lag detection let about 80 frames reach a slow reader during a 10× burst; adding a 32-frame acknowledgement window raised completeness from 90.5% to 99.7%.
+Other corrections: Codex proposed rewriting `app.js` and `history.js` as IIFE scripts; this was rejected to keep them as ES modules like the rest of the client. An AI-written `inf // 30` produced `nan` and crashed a writer task, and time-only lag detection let about 80 frames reach a slow reader during a 10× burst; adding a 32-frame acknowledgement window raised completeness from 90.5% to 99.7%.
 
 ## Responsibility statement
 

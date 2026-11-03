@@ -51,7 +51,7 @@ The client is static HTML/JavaScript in `client/`, with no build step.
 
 3. Open `http://127.0.0.1:8000`. From another machine, use `http://<VM-IP>:8000`.
 
-By default the client connects to `ws://<page host>:8765`. To use a different server, add `?server=ws%3A%2F%2F<host>%3A<port>` to the URL.
+By default the client connects to the WebSocket server on port 8765 of the host that served the page (for `http://127.0.0.1:8000`, that is `ws://127.0.0.1:8765`). To use a different server, add a `server` query parameter to the page URL, for example `http://127.0.0.1:8000/?server=ws://127.0.0.1:9000`.
 
 ## Public deterministic tests
 
@@ -111,6 +111,7 @@ python -m http.server 8000 --directory client
 # Terminal 3: deterministic source (long mode, so 60 s recall is meaningful)
 python caption_source.py --duration 120
 ```
+
 Open `http://127.0.0.1:8000` in **two browser windows side by side**. Use separate windows rather than tabs: browsers pause painting in background tabs.
 
 1. **Revision replacement.** Watch a segment labelled `[PROVISIONAL] … Updating…` (grey italics) grow in place and turn into `[FINAL]` on the same row. No duplicate line appears.
@@ -140,11 +141,12 @@ Open `http://127.0.0.1:8000` in **two browser windows side by side**. Use separa
   - **Trade-off:** batching improves completeness while reducing intermediate revisions; recovered finals can be older than 500 ms. Combined H8 impairment still missed some finals before the deadline.
   - See `report.pdf` for the measurements.
 
-## Optional Bonus: Real-Lecture ASR Integration
+## Optional ASR bonus
 
-To run the real-time lecture video transcription demo (Section 17):
+Attempted. `bonus_asr/` streams a recorded lecture (`bonus_asr/my_lecture.mp4`) through a local Vosk speech recogniser and feeds the captions into the same `solution_server.py` and browser client, using the standard LiveRecall protocol. Its dependencies are isolated in `bonus_asr/requirements-asr.txt` and a separate virtual environment, so the mandatory server path above does not need them.
 
-```sh
+```bash
 ./bonus_asr/run_bonus_demo.sh
 ```
-See `bonus_asr/README.md` for architectural design, setup details, and limitations analysis.
+
+The script installs the ASR environment and model on first run (about 40 MB, needs Internet access), then starts the server. Serve the browser client as above, open `http://127.0.0.1:8000`, and press Enter in the script's terminal to start the lecture. See `bonus_asr/README.md` for the design, setup details and limitations.
