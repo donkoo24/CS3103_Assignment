@@ -10,4 +10,4 @@ __pycache__/
 demo_results.*
 ci_t1.*
 .pytest_cache/
-AI_USAGE_NOTES.md
+AI_USAGE_NOTES.md.DS_Store
