@@ -1,1 +1,0 @@
-qdisc tbf 800f: root refcnt 2 rate 1Mbit burst 4Kb lat 400ms 
